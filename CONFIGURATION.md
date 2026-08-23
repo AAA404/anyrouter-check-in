@@ -68,7 +68,7 @@ GitHub Cookie 是登录凭据，等同于账号密钥。不要提交到仓库、
 ]
 ```
 
-如果使用 Cookie 导出工具生成的完整 JSON，请将第二个账号的 `github_cookies` 数组整体替换为导出的数组，不要只保留示例中的两个条目。导出数组中可以有 `expires` 或 `expirationDate` 字段，程序会自动处理。
+如果使用 Cookie 导出工具生成的完整 JSON，请将第二个账号的 `github_cookies` 数组整体替换为导出的数组，不要只保留示例中的两个条目。运行时会自动剥离 `expires`、`sameSite` 等浏览器专用元数据，只注入 OAuth 所需的 Cookie 名称、值、域名和路径。
 
 配置规则：
 

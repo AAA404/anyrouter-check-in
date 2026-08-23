@@ -1,11 +1,11 @@
 import pytest
 
-from checkin import check_in_account, parse_github_cookies, user_info_from_browser_profile
+from checkin import add_github_cookies, check_in_account, parse_github_cookies, user_info_from_browser_profile
 from utils.browser import BrowserLoginResult, wait_for_session_cookie
 from utils.config import AccountConfig, AppConfig, ProviderConfig
 
 
-def test_parse_github_cookies_supports_cookie_editor_format():
+def test_parse_github_cookies_strips_exporter_specific_fields():
 	cookies = parse_github_cookies(
 		[
 			{
@@ -27,9 +27,6 @@ def test_parse_github_cookies_supports_cookie_editor_format():
 			'value': 'secret',
 			'domain': '.github.com',
 			'path': '/',
-			'expires': 2_000_000_000.0,
-			'secure': True,
-			'sameSite': 'None',
 		}
 	]
 
@@ -41,6 +38,34 @@ def test_parse_github_cookies_supports_cookie_header_string():
 		{'name': 'user_session', 'value': 'abc', 'domain': '.github.com', 'path': '/'},
 		{'name': 'logged_in', 'value': 'yes', 'domain': '.github.com', 'path': '/'},
 	]
+
+
+@pytest.mark.asyncio
+async def test_add_github_cookies_ignores_a_rejected_cookie(monkeypatch):
+	class FakeContext:
+		def __init__(self):
+			self.added_names = []
+
+		async def add_cookies(self, cookies):
+			name = cookies[0]['name']
+			if name == 'invalid':
+				raise RuntimeError('Invalid cookie fields')
+			self.added_names.append(name)
+
+	context = FakeContext()
+	monkeypatch.setattr('checkin.debug_print', lambda _message: None)
+
+	success = await add_github_cookies(
+		context,
+		[
+			{'name': 'user_session', 'value': 'secret', 'domain': '.github.com', 'path': '/'},
+			{'name': 'invalid', 'value': 'bad', 'domain': '.github.com', 'path': '/'},
+		],
+		'AgentRouter GitHub',
+	)
+
+	assert success is True
+	assert context.added_names == ['user_session']
 
 
 def test_user_info_from_browser_profile_keeps_zero_balance():

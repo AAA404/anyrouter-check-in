@@ -194,13 +194,7 @@
           const domain = String(cookie.domain || '.github.com');
           const normalizedDomain = domain.replace(/^\./, '').toLowerCase();
           if (normalizedDomain !== 'github.com' && !normalizedDomain.endsWith('.github.com')) return null;
-          const result = { name: String(cookie.name), value: String(cookie.value), domain, path: String(cookie.path || '/') };
-          if (cookie.expires !== undefined && cookie.expires !== null && cookie.expires !== '') result.expires = Number(cookie.expires);
-          else if (cookie.expirationDate !== undefined && cookie.expirationDate !== null && cookie.expirationDate !== '') result.expires = Number(cookie.expirationDate);
-          if (cookie.httpOnly !== undefined) result.httpOnly = Boolean(cookie.httpOnly);
-          if (cookie.secure !== undefined) result.secure = Boolean(cookie.secure);
-          if (cookie.sameSite) result.sameSite = cookie.sameSite;
-          return result;
+          return { name: String(cookie.name), value: String(cookie.value), domain, path: String(cookie.path || '/') };
         }).filter(Boolean);
         if (!cookies.length) throw new Error('没有找到有效的 GitHub Cookie，请检查域名和值。');
         return cookies;

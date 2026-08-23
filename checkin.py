@@ -92,7 +92,7 @@ def parse_cookies(cookies_data):
 
 
 def parse_github_cookies(cookies_data) -> list[dict] | None:
-	"""将 GitHub Cookie 导出格式转换为浏览器可注入的 Cookie 列表。"""
+	"""将 GitHub Cookie 导出格式转换为最小的 Playwright Cookie 列表。"""
 	if isinstance(cookies_data, str):
 		try:
 			cookies_data = json.loads(cookies_data)
@@ -117,22 +117,31 @@ def parse_github_cookies(cookies_data) -> list[dict] | None:
 			'domain': str(item.get('domain') or '.github.com'),
 			'path': str(item.get('path') or '/'),
 		}
-		expires = item.get('expires', item.get('expirationDate'))
-		try:
-			expires_value = float(expires) if expires not in (None, '') else None
-		except (TypeError, ValueError):
-			expires_value = None
-		if expires_value is not None and expires_value > 0:
-			cookie['expires'] = expires_value
-		for key in ('httpOnly', 'secure'):
-			if key in item and item[key] is not None:
-				cookie[key] = bool(item[key])
-		same_site = str(item.get('sameSite') or '').lower()
-		same_site_map = {'strict': 'Strict', 'lax': 'Lax', 'none': 'None', 'no_restriction': 'None'}
-		if same_site in same_site_map:
-			cookie['sameSite'] = same_site_map[same_site]
+		# Cookie exporter fields such as expires, sameSite and hostOnly vary by browser
+		# and can make CDP reject the whole batch. They are unnecessary for this short
+		# lived browser context, so only inject the fields GitHub OAuth needs.
 		parsed.append(cookie)
 	return parsed or None
+
+
+async def add_github_cookies(context, cookies: list[dict], account_name: str) -> bool:
+	"""Inject GitHub cookies independently so one malformed export does not block OAuth."""
+	added = 0
+	rejected_names = []
+	for cookie in cookies:
+		try:
+			await context.add_cookies([cookie])
+			added += 1
+		except Exception as e:
+			rejected_names.append(cookie['name'])
+			debug_print(f'[WARNING] {account_name}: Ignored GitHub cookie "{cookie["name"]}": {e}')
+
+	if rejected_names:
+		print(f'[WARNING] {account_name}: Ignored {len(rejected_names)} invalid GitHub cookie(s)')
+	if not added:
+		print(f'[FAILED] {account_name}: No GitHub cookies could be added')
+		return False
+	return True
 
 
 async def get_waf_cookies_with_browser(
@@ -305,7 +314,9 @@ async def login_with_github_cookies(
 
 	page = None
 	try:
-		await context.add_cookies(cookies)
+		if not await add_github_cookies(context, cookies, account_name):
+			await context.close()
+			return None
 		page = await context.new_page()
 		await prepare_browser_page(page)
 		login_url = f'{provider_config.domain}{provider_config.login_path}'
