@@ -94,7 +94,7 @@ AgentRouter 的 GitHub OAuth 和 WAF 对 GitHub Actions 出口 IP 较敏感，�
 - Name：`PROXY_SUBSCRIPTION_URL`
 - Value：你的 Clash/Mihomo 订阅地址
 
-仓库 workflow 会自动启动代理，并对 `agentrouter` 使用代理；AnyRouter 默认不使用代理。没有代理时 workflow 仍可能启动，但 AgentRouter OAuth 可能因出口 IP 或 WAF 被拒绝。
+仓库 workflow 会自动启动代理，并对 `agentrouter` 使用代理；AnyRouter 默认不使用代理。workflow 会同时探测 AgentRouter 和 Google，避免选中只能访问 Google、却会被 AgentRouter 关闭连接的代理节点。没有可用代理时，AnyRouter 仍可签到，但 AgentRouter 会明确失败并提示代理不可用。
 
 ## 5. 手动验证
 

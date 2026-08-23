@@ -3,6 +3,7 @@
 # 环境变量:
 #   PROXY_SUBSCRIPTION_URL  订阅链接（必填才启用）
 #   PROXY_TEST_URL          探测目标，默认 https://www.google.com/generate_204
+#   PROXY_TEST_URLS         额外探测目标（空格分隔），用于确认代理能访问实际服务
 #   PROXY_REQUIRED          true 时探测失败则退出 1
 #   PROXY_PORT              本地 mixed-port，默认 7890
 
@@ -16,6 +17,7 @@ fi
 PROXY_DIR="${RUNNER_TEMP:-/tmp}/checkin-proxy"
 PROXY_PORT="${PROXY_PORT:-7890}"
 PROXY_TEST_URL="${PROXY_TEST_URL:-https://www.google.com/generate_204}"
+PROXY_TEST_URLS="${PROXY_TEST_URLS:-${PROXY_TEST_URL}}"
 MIHOMO_VERSION="${MIHOMO_VERSION:-v1.19.0}"
 PROXY_REQUIRED="${PROXY_REQUIRED:-false}"
 
@@ -76,7 +78,17 @@ echo $! > mihomo.pid
 PROXY_URL="http://127.0.0.1:${PROXY_PORT}"
 READY=false
 for attempt in $(seq 1 45); do
-	if curl -fsS -x "${PROXY_URL}" --max-time 20 "${PROXY_TEST_URL}" -o /dev/null 2>/dev/null; then
+	READY=true
+	for test_url in ${PROXY_TEST_URLS}; do
+		# Any HTTP response proves the TCP/TLS path works; a 4xx/5xx response
+		# can still be a reachable WAF page and should not reject the proxy.
+		http_code="$(curl -sS -x "${PROXY_URL}" --max-time 20 "${test_url}" -o /dev/null -w '%{http_code}' 2>/dev/null || true)"
+		if [[ ! "${http_code}" =~ ^[1-4][0-9][0-9]$ ]]; then
+			READY=false
+			echo "[INFO] Proxy probe failed for ${test_url} (HTTP ${http_code:-no response})"
+		fi
+	done
+	if [[ "${READY}" == "true" ]]; then
 		READY=true
 		break
 	fi
@@ -85,7 +97,7 @@ for attempt in $(seq 1 45); do
 done
 
 if [[ "${READY}" != "true" ]]; then
-	echo "[FAILED] Proxy health check failed for ${PROXY_TEST_URL}"
+	echo "[FAILED] Proxy health check failed for: ${PROXY_TEST_URLS}"
 	tail -n 30 mihomo.log || true
 	if [[ -f mihomo.pid ]]; then
 		kill "$(cat mihomo.pid)" 2>/dev/null || true

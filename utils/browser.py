@@ -354,9 +354,19 @@ async def navigate_login_page(
 	except Exception as exc:
 		print(f'[WARN] Warmup navigation failed: {exc}')
 
+	last_navigation_error = None
 	for attempt in range(3):
 		print(f'[INFO] Navigating login page (attempt {attempt + 1}/3): {login_url}')
-		await page.goto(login_url, wait_until='load', timeout=attempt_timeout)
+		try:
+			await page.goto(login_url, wait_until='load', timeout=attempt_timeout)
+			last_navigation_error = None
+		except Exception as exc:
+			last_navigation_error = exc
+			print(f'[WARN] Login navigation failed on attempt {attempt + 1}: {exc}')
+			if attempt < 2:
+				await asyncio.sleep(5)
+				continue
+			break
 		await _settle_page(page, 5, 20_000)
 
 		if await _wait_for_login_shell(page, attempt_timeout):
@@ -375,6 +385,8 @@ async def navigate_login_page(
 			except Exception:  # nosec B110
 				pass
 
+	if last_navigation_error is not None:
+		raise RuntimeError(f'Login page navigation failed after 3 attempts: {login_url}') from last_navigation_error
 	raise TimeoutError(f'Login page never rendered: {login_url}')
 
 
