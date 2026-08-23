@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="生成 AnyRouter 和 AgentRouter GitHub Actions 自动签到配置">
+  <title>AnyRouter / AgentRouter 配置生成器</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7fb;
+      --card: rgba(255, 255, 255, .94);
+      --ink: #182230;
+      --muted: #657286;
+      --line: #dbe2ec;
+      --accent: #2563eb;
+      --accent-dark: #1d4ed8;
+      --success: #087443;
+      --danger: #b42318;
+      --shadow: 0 18px 50px rgba(30, 48, 82, .1);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background: var(--bg);
+    }
+
+    .shell { width: min(1080px, calc(100% - 32px)); margin: 0 auto; padding: 56px 0 72px; }
+    .hero { margin-bottom: 28px; }
+    .eyebrow { margin: 0 0 10px; color: var(--accent); font-size: .78rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    h1 { margin: 0; max-width: 760px; font-size: clamp(2rem, 5vw, 3.3rem); line-height: 1.08; letter-spacing: 0; }
+    .lead { max-width: 720px; margin: 16px 0 0; color: var(--muted); font-size: 1.03rem; line-height: 1.75; }
+
+    .notice { margin: 22px 0 28px; padding: 15px 17px; border: 1px solid #f4d28a; border-radius: 8px; color: #704f00; background: #fff9e8; line-height: 1.6; }
+    .notice strong { color: #5c4100; }
+
+    .layout { display: grid; grid-template-columns: minmax(0, 1.03fr) minmax(330px, .97fr); gap: 22px; align-items: start; }
+    .card { border: 1px solid rgba(219, 226, 236, .95); border-radius: 8px; background: var(--card); box-shadow: var(--shadow); }
+    .form-card { padding: 26px; }
+    .output-card { position: sticky; top: 20px; padding: 22px; }
+    .section-heading { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 19px; }
+    h2 { margin: 0; font-size: 1.2rem; letter-spacing: 0; }
+    .section-heading p { margin: 5px 0 0; color: var(--muted); font-size: .9rem; line-height: 1.5; }
+    .number { display: inline-grid; place-items: center; flex: 0 0 auto; width: 30px; height: 30px; border-radius: 6px; color: #fff; background: var(--accent); font-weight: 800; }
+
+    .field { margin: 16px 0; }
+    label { display: block; margin-bottom: 7px; font-size: .9rem; font-weight: 750; }
+    .hint { margin: -1px 0 8px; color: var(--muted); font-size: .8rem; line-height: 1.5; }
+    input, textarea { width: 100%; border: 1px solid var(--line); border-radius: 6px; outline: none; color: var(--ink); background: #fff; font: inherit; transition: border-color .18s, box-shadow .18s; }
+    input { min-height: 45px; padding: 10px 12px; }
+    textarea { min-height: 145px; padding: 12px; resize: vertical; line-height: 1.5; }
+    input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(37, 99, 235, .12); }
+    .required { color: var(--danger); }
+    .divider { height: 1px; margin: 28px 0; background: var(--line); }
+
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+    button { min-height: 43px; padding: 0 16px; border: 1px solid transparent; border-radius: 6px; cursor: pointer; font: inherit; font-weight: 750; transition: transform .15s, background .15s, border-color .15s; }
+    button:hover { transform: translateY(-1px); }
+    .primary { color: #fff; background: var(--accent); }
+    .primary:hover { background: var(--accent-dark); }
+    .secondary { color: var(--ink); border-color: var(--line); background: #fff; }
+    .secondary:hover { border-color: #aebbd0; background: #f8fafc; }
+    button:disabled { cursor: not-allowed; opacity: .48; transform: none; }
+
+    .status { min-height: 22px; margin: 15px 0 0; color: var(--muted); font-size: .88rem; line-height: 1.5; }
+    .status.success { color: var(--success); }
+    .status.error { color: var(--danger); }
+    .output-label { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 9px; }
+    .output-label span { color: var(--muted); font-size: .82rem; }
+    #output { min-height: 335px; margin: 0; padding: 15px; overflow: auto; border: 1px solid #253247; border-radius: 6px; color: #dce7f7; background: #111927; font: .78rem/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+    .output-actions { display: flex; gap: 9px; margin-top: 12px; }
+    .output-actions button { flex: 1; }
+    .footer-note { margin: 14px 0 0; color: var(--muted); font-size: .78rem; line-height: 1.55; }
+    code { padding: 2px 5px; border-radius: 5px; color: #234d9b; background: #edf3ff; font-size: .92em; }
+
+    @media (max-width: 800px) {
+      .shell { padding-top: 34px; }
+      .layout { grid-template-columns: 1fr; }
+      .output-card { position: static; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <p class="eyebrow">GitHub Actions · Check-in Config</p>
+      <h1>AnyRouter / AgentRouter 配置生成器</h1>
+      <p class="lead">填入两个账号的必要信息，生成可以直接粘贴到 GitHub Environment Secret <code>ANYROUTER_ACCOUNTS</code> 的 JSON。</p>
+    </header>
+
+    <div class="notice" role="note"><strong>安全提示：</strong>本页面不联网、不上传数据，也不会把内容保存到浏览器。GitHub Cookie 等同于登录凭据，请只在可信设备上使用，并在生成后清空页面。</div>
+
+    <section class="layout">
+      <form class="card form-card" id="config-form" novalidate>
+        <div class="section-heading">
+          <div><h2>AnyRouter · Session Cookie</h2><p>需要填写 <code>session</code> 和 <code>New-Api-User</code>。</p></div>
+          <span class="number">1</span>
+        </div>
+        <div class="field">
+          <label for="any-name">账号名称 <span class="hint">（可选）</span></label>
+          <input id="any-name" name="any-name" type="text" value="AnyRouter session" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="any-session">AnyRouter session Cookie <span class="required">*</span></label>
+          <p class="hint">在 anyrouter.top 的开发者工具 → Application → Cookies 中复制 session 的值。</p>
+          <input id="any-session" name="any-session" type="password" placeholder="粘贴 session 值" autocomplete="off" spellcheck="false" required>
+        </div>
+        <div class="field">
+          <label for="any-api-user">New-Api-User 值 <span class="required">*</span></label>
+          <p class="hint">在 Network → Fetch/XHR 请求头中找到 <code>New-Api-User</code>，通常是一串数字。</p>
+          <input id="any-api-user" name="any-api-user" type="text" placeholder="例如：12345" autocomplete="off" spellcheck="false" required>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="section-heading">
+          <div><h2>AgentRouter · GitHub OAuth</h2><p>粘贴 GitHub Cookie 导出 JSON，或 Cookie 请求头字符串。</p></div>
+          <span class="number">2</span>
+        </div>
+        <div class="field">
+          <label for="agent-name">账号名称 <span class="hint">（可选）</span></label>
+          <input id="agent-name" name="agent-name" type="text" value="AgentRouter GitHub" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="github-cookies">GitHub Cookie <span class="required">*</span></label>
+          <p class="hint">推荐粘贴浏览器导出的完整 JSON 数组。也支持 <code>user_session=...; logged_in=yes</code> 格式。</p>
+          <textarea id="github-cookies" name="github-cookies" placeholder='例如：[{"name":"user_session","value":"...","domain":".github.com"}]' autocomplete="off" spellcheck="false" required></textarea>
+        </div>
+
+        <div class="actions">
+          <button class="primary" type="submit">生成配置</button>
+          <button class="secondary" id="clear-btn" type="button">清空</button>
+        </div>
+        <p class="status" id="status" role="status" aria-live="polite"></p>
+      </form>
+
+      <aside class="card output-card">
+        <div class="output-label"><strong>ANYROUTER_ACCOUNTS</strong><span>JSON Secret 内容</span></div>
+        <pre id="output" aria-label="生成的 JSON 配置">点击“生成配置”后，这里会显示结果。</pre>
+        <div class="output-actions">
+          <button class="secondary" id="copy-btn" type="button" disabled>复制 JSON</button>
+          <button class="secondary" id="download-btn" type="button" disabled>下载 JSON</button>
+        </div>
+        <p class="footer-note">在 GitHub 仓库中进入 <code>Settings → Environments → production → Environment secrets</code>，创建名为 <code>ANYROUTER_ACCOUNTS</code> 的 Secret 并粘贴上面的内容。</p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    (() => {
+      'use strict';
+
+      const form = document.querySelector('#config-form');
+      const output = document.querySelector('#output');
+      const status = document.querySelector('#status');
+      const copyButton = document.querySelector('#copy-btn');
+      const downloadButton = document.querySelector('#download-btn');
+      let generatedJson = '';
+
+      const setStatus = (message, type = '') => {
+        status.textContent = message;
+        status.className = `status ${type}`.trim();
+      };
+
+      const parseCookieHeader = (value) => value.split(';').reduce((cookies, part) => {
+        const separator = part.indexOf('=');
+        if (separator < 1) return cookies;
+        const name = part.slice(0, separator).trim();
+        const cookieValue = part.slice(separator + 1).trim();
+        if (name && cookieValue) cookies.push({ name, value: cookieValue, domain: '.github.com', path: '/' });
+        return cookies;
+      }, []);
+
+      const parseGitHubCookies = (raw) => {
+        const text = raw.trim();
+        if (!text) throw new Error('请填写 GitHub Cookie。');
+        let parsed;
+        try { parsed = JSON.parse(text); } catch (error) {
+          parsed = parseCookieHeader(text);
+        }
+        if (!Array.isArray(parsed)) {
+          if (parsed && typeof parsed === 'object') {
+            parsed = Object.entries(parsed).map(([name, value]) => ({ name, value, domain: '.github.com', path: '/' }));
+          } else {
+            throw new Error('GitHub Cookie 必须是 JSON 数组、JSON 对象或 Cookie 请求头字符串。');
+          }
+        }
+        const cookies = parsed.filter((cookie) => cookie && typeof cookie === 'object' && cookie.name && cookie.value !== undefined).map((cookie) => {
+          const domain = String(cookie.domain || '.github.com');
+          const normalizedDomain = domain.replace(/^\./, '').toLowerCase();
+          if (normalizedDomain !== 'github.com' && !normalizedDomain.endsWith('.github.com')) return null;
+          const result = { name: String(cookie.name), value: String(cookie.value), domain, path: String(cookie.path || '/') };
+          if (cookie.expires !== undefined && cookie.expires !== null && cookie.expires !== '') result.expires = Number(cookie.expires);
+          else if (cookie.expirationDate !== undefined && cookie.expirationDate !== null && cookie.expirationDate !== '') result.expires = Number(cookie.expirationDate);
+          if (cookie.httpOnly !== undefined) result.httpOnly = Boolean(cookie.httpOnly);
+          if (cookie.secure !== undefined) result.secure = Boolean(cookie.secure);
+          if (cookie.sameSite) result.sameSite = cookie.sameSite;
+          return result;
+        }).filter(Boolean);
+        if (!cookies.length) throw new Error('没有找到有效的 GitHub Cookie，请检查域名和值。');
+        return cookies;
+      };
+
+      const buildConfig = () => {
+        const anySession = document.querySelector('#any-session').value.trim();
+        const anyApiUser = document.querySelector('#any-api-user').value.trim();
+        const githubCookies = parseGitHubCookies(document.querySelector('#github-cookies').value);
+        if (!anySession) throw new Error('请填写 AnyRouter session Cookie。');
+        if (!anyApiUser) throw new Error('请填写 AnyRouter 的 New-Api-User 值。');
+        return [
+          {
+            name: document.querySelector('#any-name').value.trim() || 'AnyRouter session',
+            provider: 'anyrouter',
+            cookies: { session: anySession },
+            api_user: anyApiUser,
+          },
+          {
+            name: document.querySelector('#agent-name').value.trim() || 'AgentRouter GitHub',
+            provider: 'agentrouter',
+            github_cookies: githubCookies,
+          },
+        ];
+      };
+
+      const generate = () => {
+        try {
+          generatedJson = JSON.stringify(buildConfig(), null, 2);
+          output.textContent = generatedJson;
+          copyButton.disabled = false;
+          downloadButton.disabled = false;
+          setStatus('配置生成成功。请复制到 GitHub Environment Secret。', 'success');
+        } catch (error) {
+          generatedJson = '';
+          output.textContent = '点击“生成配置”后，这里会显示结果。';
+          copyButton.disabled = true;
+          downloadButton.disabled = true;
+          setStatus(error.message, 'error');
+        }
+      };
+
+      form.addEventListener('submit', (event) => { event.preventDefault(); generate(); });
+      document.querySelector('#clear-btn').addEventListener('click', () => {
+        form.reset();
+        generatedJson = '';
+        output.textContent = '点击“生成配置”后，这里会显示结果。';
+        copyButton.disabled = true;
+        downloadButton.disabled = true;
+        setStatus('已清空页面内容。', '');
+      });
+      copyButton.addEventListener('click', async () => {
+        if (!generatedJson) return;
+        try {
+          await navigator.clipboard.writeText(generatedJson);
+          setStatus('JSON 已复制到剪贴板。', 'success');
+        } catch (error) {
+          setStatus('复制失败，请手动选择右侧 JSON。', 'error');
+        }
+      });
+      downloadButton.addEventListener('click', () => {
+        if (!generatedJson) return;
+        const blob = new Blob([generatedJson], { type: 'application/json;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'anyrouter-accounts.json';
+        link.click();
+        URL.revokeObjectURL(url);
+        setStatus('JSON 文件已下载。', 'success');
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -32,7 +32,7 @@
 
 ### 2. 获取账号信息
 
-对于每个需要签到的账号，你需要获取：(可借助 [在线 Secrets 配置生成器](https://millylee.github.io/anyrouter-check-in/))
+对于每个需要签到的账号，你需要获取（也可以使用仓库内的[配置生成器](index.html)）：
 
 1. **Cookies**: 用于身份验证
 2. **API User**: 用于请求头的 new-api-user 参数（自己配置其它平台时该值需要注意匹配）
