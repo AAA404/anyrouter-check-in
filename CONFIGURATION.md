@@ -96,6 +96,8 @@ AgentRouter 的 GitHub OAuth 和 WAF 对 GitHub Actions 出口 IP 较敏感，�
 
 仓库 workflow 会自动启动代理，并对 `agentrouter` 使用代理；AnyRouter 默认不使用代理。workflow 会同时探测 AgentRouter 和 Google，避免选中只能访问 Google、却会被 AgentRouter 关闭连接的代理节点。没有可用代理时，AnyRouter 仍可签到，但 AgentRouter 会明确失败并提示代理不可用。
 
+AgentRouter 默认使用无头 Chromium，并默认关闭 humanize；也可以通过 `CHECKIN_HEADLESS_AGENTROUTER` 和 `CHECKIN_HUMANIZE_AGENTROUTER` 单独覆盖。这是为了避免某些代理出口或站点 WAF 关闭 headed/拟人化 Chromium 的连接；AnyRouter 仍使用全局 `CHECKIN_HEADLESS` 和 `CHECKIN_HUMANIZE` 设置。
+
 ## 5. 手动验证
 
 1. 打开仓库的 **Actions** 页面。

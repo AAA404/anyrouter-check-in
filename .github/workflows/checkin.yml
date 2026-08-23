@@ -94,6 +94,8 @@ jobs:
         DEBUG_MODE: ${{ env.DEBUG_MODE }}
         CHECKIN_HEADLESS: false
         CHECKIN_HUMANIZE: true
+        CHECKIN_HEADLESS_AGENTROUTER: true
+        CHECKIN_HUMANIZE_AGENTROUTER: false
         CHECKIN_WAIT_TIMEOUT_MS: 120000
         ANYROUTER_ACCOUNTS: ${{ secrets.ANYROUTER_ACCOUNTS }}
         PROVIDERS: ${{ secrets.PROVIDERS }}

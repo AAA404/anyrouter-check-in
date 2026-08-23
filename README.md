@@ -313,6 +313,8 @@ CHECKIN_PROXY_URL=http://127.0.0.1:7890
 PROVIDERS={"agentrouter":{"use_proxy":true}}
 ```
 
+AgentRouter 的浏览器参数默认独立于 AnyRouter：使用无头 Chromium，并关闭 `humanize`，以避免部分代理出口或站点 WAF 关闭 headed/拟人化 Chromium 的连接。如需覆盖，可设置 `CHECKIN_HEADLESS_AGENTROUTER` 或 `CHECKIN_HUMANIZE_AGENTROUTER`；AnyRouter 仍使用全局 `CHECKIN_HEADLESS` 和 `CHECKIN_HUMANIZE`。
+
 如果使用订阅脚本，默认会用 `https://www.google.com/generate_204` 测试代理连通性；也可以通过 `PROXY_TEST_URL` 覆盖。
 
 ## 开启通知

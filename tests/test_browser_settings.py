@@ -15,6 +15,39 @@ def test_browser_login_settings_records_profile_persistence(monkeypatch, tmp_pat
 	assert settings.profile_dir == tmp_path / 'agentrouter' / 'Account 1'
 
 
+def test_agentrouter_browser_settings_use_provider_overrides(monkeypatch):
+	monkeypatch.setenv('CHECKIN_HEADLESS', 'false')
+	monkeypatch.setenv('CHECKIN_HUMANIZE', 'true')
+	monkeypatch.setenv('CHECKIN_HEADLESS_AGENTROUTER', 'true')
+	monkeypatch.setenv('CHECKIN_HUMANIZE_AGENTROUTER', 'false')
+
+	settings = load_browser_login_settings('AgentRouter', 'agentrouter', persist_profile=False)
+
+	assert settings.headless is True
+	assert settings.humanize is False
+
+
+def test_non_agentrouter_browser_settings_keep_global_values(monkeypatch):
+	monkeypatch.setenv('CHECKIN_HEADLESS', 'false')
+	monkeypatch.setenv('CHECKIN_HUMANIZE', 'true')
+
+	settings = load_browser_login_settings('AnyRouter', 'anyrouter', persist_profile=True)
+
+	assert settings.headless is False
+	assert settings.humanize is True
+
+
+def test_agentrouter_humanize_is_opt_in(monkeypatch):
+	monkeypatch.setenv('CHECKIN_HEADLESS', 'false')
+	monkeypatch.delenv('CHECKIN_HUMANIZE_AGENTROUTER', raising=False)
+	monkeypatch.delenv('CHECKIN_HEADLESS_AGENTROUTER', raising=False)
+
+	settings = load_browser_login_settings('AgentRouter', 'agentrouter', persist_profile=False)
+
+	assert settings.headless is True
+	assert settings.humanize is False
+
+
 @pytest.mark.asyncio
 async def test_launch_login_context_uses_persistent_context_when_enabled(monkeypatch, tmp_path):
 	calls = {}

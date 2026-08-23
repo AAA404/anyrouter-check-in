@@ -178,11 +178,13 @@ def load_browser_login_settings(
 ) -> BrowserLoginSettings:
 	profile_base = Path(os.getenv('CHECKIN_BROWSER_PROFILE_DIR', '.browser_profiles'))
 	profile_dir = profile_base / provider / account_name
+	headless = _env_bool('CHECKIN_HEADLESS', True)
 	humanize = _env_bool('CHECKIN_HUMANIZE', True)
 	if provider == 'agentrouter':
-		humanize = _env_bool('CHECKIN_HUMANIZE_AGENTROUTER', humanize)
+		headless = _env_bool('CHECKIN_HEADLESS_AGENTROUTER', True)
+		humanize = _env_bool('CHECKIN_HUMANIZE_AGENTROUTER', False)
 	return BrowserLoginSettings(
-		headless=_env_bool('CHECKIN_HEADLESS', True),
+		headless=headless,
 		humanize=humanize,
 		wait_timeout_ms=int(os.getenv('CHECKIN_WAIT_TIMEOUT_MS', str(DEFAULT_TIMEOUT_MS))),
 		profile_dir=profile_dir,
@@ -213,6 +215,10 @@ class _EphemeralBrowserContext:
 
 async def launch_login_context(settings: BrowserLoginSettings, *, use_proxy: bool = False) -> BrowserContext:
 	_ensure_binary_path(settings)
+	print(
+		f'[INFO] Browser mode: headless={str(settings.headless).lower()}, '
+		f'humanize={str(settings.humanize).lower()}'
+	)
 
 	launch_kwargs: dict = {
 		'headless': settings.headless,
