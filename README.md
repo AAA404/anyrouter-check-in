@@ -82,6 +82,7 @@
 
 - `email` + `password`：推荐的浏览器登录方式，登录成功后会自动获取 cookies 与用户标识
 - `cookies`：兼容旧版的 session cookies 登录方式
+- `github_cookies`：AgentRouter 无邮箱密码时使用。填写从 GitHub 浏览器导出的 Cookie JSON，Action 会用它完成 GitHub OAuth 并触发 AgentRouter 签到
 - `api_user`：session cookies 登录时用于请求头的 new-api-user 参数；邮箱密码登录可省略
 - `provider` (可选)：指定使用的服务商，默认为 `anyrouter`
 - `name` (可选)：自定义账号显示名称，用于通知和日志中标识账号
@@ -101,6 +102,31 @@
 通过 F12 工具，切到 Network 面板，可以过滤下，只要 Fetch/XHR，找到带 `New-Api-User`，这个值正常是 5 位数，如果是负数或者个位数，正常是未登录。
 
 ![获取 api_user](./assets/request-api-user.png)
+
+### AgentRouter 没有邮箱密码时
+
+AgentRouter 的签到发生在登录事件中，不是独立调用 `/api/user/sign_in`。如果账号只能使用 GitHub 登录，可以使用 `github_cookies`：
+
+1. 在浏览器登录 GitHub，并确认能正常访问 `https://github.com/settings/profile`。
+2. 使用浏览器 Cookie 导出工具导出 GitHub Cookie，保留 JSON 数组格式。
+3. 将导出的 JSON 作为 `ANYROUTER_ACCOUNTS` 中该账号的 `github_cookies` 字段。
+
+示例：
+
+```json
+[
+  {
+    "name": "AgentRouter GitHub",
+    "provider": "agentrouter",
+    "github_cookies": [
+      {"name": "user_session", "value": "...", "domain": ".github.com"},
+      {"name": "logged_in", "value": "yes", "domain": ".github.com"}
+    ]
+  }
+]
+```
+
+`github_cookies` 不需要 `email`、`password`、`api_user` 或 AgentRouter `session`。GitHub Cookie 是敏感登录凭据，只应放在 GitHub Environment Secret 中；不要提交到仓库或打印到日志。Cookie 失效后需要重新导出。AgentRouter 的 GitHub OAuth 和 WAF 对出口 IP 较敏感，GitHub Actions 建议同时配置 `PROXY_SUBSCRIPTION_URL`。
 
 ### 5. 启用 GitHub Actions
 

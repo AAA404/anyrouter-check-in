@@ -25,11 +25,21 @@ EMAIL_LOGIN_BUTTON_NAMES = (
 	re.compile(r'Sign in with Email', re.I),
 	re.compile(r'Sign in with Email or Username', re.I),
 )
+GITHUB_LOGIN_BUTTON_NAMES = (
+	'使用 GitHub 继续',
+	'Continue with GitHub',
+	'Sign in with GitHub',
+)
 EMAIL_LOGIN_ENTRY_SELECTORS = (
 	'.semi-card button:has(.semi-icon-mail):not(form.semi-form button)',
 	'.semi-card button:has([aria-label="mail"]):not(form.semi-form button)',
 	'.semi-card button.semi-button-primary:has(.semi-icon-mail)',
 	'button:has(.semi-icon-mail):not(form.semi-form button)',
+)
+GITHUB_LOGIN_ENTRY_SELECTORS = (
+	'button:has(.semi-icon-github)',
+	'button:has([aria-label*="github" i])',
+	'a[href*="github" i]',
 )
 LOGIN_PAGE_READY_SELECTORS = (
 	'.semi-card button:has(.semi-icon-mail)',
@@ -143,6 +153,7 @@ _OPEN_EMAIL_FORM_JS = """() => {
 class BrowserLoginResult:
 	cookies: dict[str, str]
 	api_user: str | None = None
+	user_profile: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -367,9 +378,16 @@ async def navigate_login_page(
 	raise TimeoutError(f'Login page never rendered: {login_url}')
 
 
-async def has_session_cookie(page: Page) -> bool:
-	cookies = await page.context.cookies()
-	return any(c.get('name') == SESSION_COOKIE_NAME and c.get('value') for c in cookies)
+async def get_session_cookie_value(page: Page, *, cookie_url: str | None = None) -> str | None:
+	cookies = await page.context.cookies(cookie_url) if cookie_url else await page.context.cookies()
+	for cookie in cookies:
+		if cookie.get('name') == SESSION_COOKIE_NAME and cookie.get('value'):
+			return str(cookie['value'])
+	return None
+
+
+async def has_session_cookie(page: Page, *, cookie_url: str | None = None) -> bool:
+	return await get_session_cookie_value(page, cookie_url=cookie_url) is not None
 
 
 def _extract_user_profile(payload: object) -> dict | None:
@@ -393,6 +411,46 @@ async def _parse_user_self_response(response) -> dict | None:
 	return _extract_user_profile(payload)
 
 
+async def _fetch_user_profile(page: Page) -> dict | None:
+	try:
+		payload = await page.evaluate(
+			"""async path => {
+				try {
+					const response = await fetch(path, {
+						cache: 'no-store',
+						credentials: 'include',
+						headers: { Accept: 'application/json' },
+					});
+					if (!response.ok) return null;
+					return await response.json();
+				} catch {
+					return null;
+				}
+			}""",
+			USER_SELF_API_SUFFIX,
+		)
+	except Exception:  # nosec B110
+		return None
+	return _extract_user_profile(payload)
+
+
+async def _read_stored_user_profile(page: Page) -> dict | None:
+	try:
+		payload = await page.evaluate(
+			"""() => {
+				try {
+					const raw = localStorage.getItem('user');
+					return raw ? JSON.parse(raw) : null;
+				} catch {
+					return null;
+				}
+			}"""
+		)
+	except Exception:  # nosec B110
+		return None
+	return _extract_user_profile(payload)
+
+
 async def is_logged_in(page: Page) -> bool:
 	"""快速判断：是否在 /console，或仍停留在登录页。"""
 	url = page.url.lower()
@@ -409,10 +467,17 @@ async def is_logged_in(page: Page) -> bool:
 	return False
 
 
-async def wait_for_session_cookie(page: Page, timeout_ms: int = SESSION_WAIT_TIMEOUT_MS) -> bool:
+async def wait_for_session_cookie(
+	page: Page,
+	timeout_ms: int = SESSION_WAIT_TIMEOUT_MS,
+	*,
+	cookie_url: str | None = None,
+	previous_value: str | None = None,
+) -> bool:
 	deadline = time.monotonic() + timeout_ms / 1000
 	while time.monotonic() < deadline:
-		if await has_session_cookie(page):
+		current_value = await get_session_cookie_value(page, cookie_url=cookie_url)
+		if current_value is not None and current_value != previous_value:
 			return True
 		await asyncio.sleep(0.5)
 	return False
@@ -428,10 +493,8 @@ async def wait_for_logged_in(page: Page, timeout_ms: int = SESSION_WAIT_TIMEOUT_
 
 
 async def verify_browser_login(page: Page, console_url: str, timeout_ms: int) -> dict | None:
-	"""跳转 /console 并拦截 /api/user/self，用浏览器会话确认登录用户。"""
-	verify_timeout = min(timeout_ms, SESSION_WAIT_TIMEOUT_MS)
+	"""跳转 /console，通过响应、localStorage 或主动请求确认登录用户。"""
 	captured_profile: dict | None = None
-	verified = asyncio.Event()
 
 	async def on_response(response) -> None:
 		nonlocal captured_profile
@@ -440,22 +503,24 @@ async def verify_browser_login(page: Page, console_url: str, timeout_ms: int) ->
 		profile = await _parse_user_self_response(response)
 		if profile:
 			captured_profile = profile
-			verified.set()
 
 	page.on('response', on_response)
 	try:
 		print(f'[INFO] Verifying login via {console_url} and {USER_SELF_API_SUFFIX}')
-		await page.goto(console_url, wait_until='load', timeout=min(timeout_ms, 60_000))
-		try:
-			await page.wait_for_load_state('networkidle', timeout=20_000)
-		except Exception:  # nosec B110
-			pass
-
-		if captured_profile is None:
-			try:
-				await asyncio.wait_for(verified.wait(), timeout=verify_timeout / 1000)
-			except TimeoutError:
-				pass
+		await page.goto(console_url, wait_until='domcontentloaded', timeout=min(timeout_ms, 60_000))
+		for attempt in range(6):
+			if captured_profile is not None:
+				break
+			stored_profile = await _read_stored_user_profile(page)
+			if stored_profile is not None:
+				captured_profile = stored_profile
+				break
+			fetched_profile = await _fetch_user_profile(page)
+			if fetched_profile is not None:
+				captured_profile = fetched_profile
+				break
+			if attempt < 5:
+				await asyncio.sleep(0.5)
 	finally:
 		page.remove_listener('response', on_response)
 
@@ -777,3 +842,69 @@ async def login_with_email_form(
 	)
 	await fill_email_credentials(page, email, password, timeout_ms)
 	await submit_login_form(page, timeout_ms)
+
+
+async def click_github_login_entry(
+	page: Page,
+	timeout_ms: int,
+	*,
+	provider: str = '',
+	account_name: str = '',
+) -> bool:
+	"""在登录页点击 GitHub OAuth 入口。"""
+	deadline = time.monotonic() + timeout_ms / 1000
+
+	try:
+		await _wait_for_login_page_ready(page, min(timeout_ms, WAF_READY_TIMEOUT_MS))
+	except Exception:  # nosec B110
+		pass
+
+	while time.monotonic() < deadline:
+		await _dismiss_blocking_overlays(page)
+		for selector in GITHUB_LOGIN_ENTRY_SELECTORS:
+			locators = page.locator(selector)
+			try:
+				count = await locators.count()
+			except Exception:  # nosec B112
+				continue
+			for index in range(count):
+				button = locators.nth(index)
+				try:
+					if await button.is_visible() and await _click_locator(button):
+						return True
+				except Exception:  # nosec B112
+					continue
+
+		for pattern in GITHUB_LOGIN_BUTTON_NAMES:
+			for scope in (page.locator('.semi-card'), page):
+				try:
+					button = scope.get_by_role('button', name=pattern).first
+					if await button.is_visible() and await _click_locator(button):
+						return True
+				except Exception:  # nosec B112
+					continue
+		await asyncio.sleep(0.5)
+
+	debug_print(f'[INFO] GitHub login entry not found on {page.url}')
+	if provider and account_name:
+		await save_login_screenshot(page, provider, account_name, 'github-entry-timeout')
+	return False
+
+
+async def confirm_github_oauth(page: Page, timeout_ms: int = 10_000) -> bool:
+	"""必要时在 GitHub OAuth 确认页点击 Authorize/Reauthorize。"""
+	button = page.get_by_role('button', name=re.compile(r'^(?:Re)?Authorize\b', re.I)).first
+	deadline = time.monotonic() + min(timeout_ms, FORM_ACTION_TIMEOUT_MS) / 1000
+	while time.monotonic() < deadline:
+		if page.is_closed():
+			return False
+		if page.url != 'about:blank' and 'github.com/login/oauth/authorize' not in page.url:
+			return False
+		try:
+			if await button.is_visible():
+				await button.click(timeout=min(timeout_ms, FORM_ACTION_TIMEOUT_MS))
+				return True
+		except Exception as exc:  # nosec B110
+			debug_print(f'[INFO] GitHub OAuth confirmation button check failed: {exc}')
+		await asyncio.sleep(0.2)
+	return False

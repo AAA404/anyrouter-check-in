@@ -155,6 +155,7 @@ class AccountConfig:
 	name: str | None = None
 	email: str | None = None
 	password: str | None = None
+	github_cookies: dict | str | list | None = None
 
 	@classmethod
 	def from_dict(cls, data: dict, index: int) -> 'AccountConfig':
@@ -169,11 +170,16 @@ class AccountConfig:
 			name=name if name else None,
 			email=data.get('email'),
 			password=data.get('password'),
+			github_cookies=data.get('github_cookies'),
 		)
 
 	def has_login_credentials(self) -> bool:
 		"""是否配置了邮箱密码登录"""
 		return bool(self.email and self.password)
+
+	def has_github_cookies(self) -> bool:
+		"""是否配置了用于 GitHub OAuth 的登录 Cookie"""
+		return bool(self.github_cookies)
 
 	def get_display_name(self, index: int) -> str:
 		"""获取显示名称"""
@@ -207,17 +213,20 @@ def load_accounts_config() -> list[AccountConfig] | None:
 
 			if 'api_user' not in account_dict:
 				has_login = account_dict.get('email') and account_dict.get('password')
-				if not has_login:
+				has_github_cookies = bool(account_dict.get('github_cookies'))
+				if not has_login and not has_github_cookies:
 					print(
-						f'ERROR: Account {i + 1} missing required field (api_user) - only email+password login can omit it'
+						f'ERROR: Account {i + 1} missing required field (api_user) - '
+						'email+password or github_cookies login can omit it'
 					)
 					return None
 
 			has_cookies = 'cookies' in account_dict and account_dict['cookies']
 			has_login = account_dict.get('email') and account_dict.get('password')
+			has_github_cookies = bool(account_dict.get('github_cookies'))
 
-			if not has_cookies and not has_login:
-				print(f'ERROR: Account {i + 1} must have either cookies or email+password')
+			if not has_cookies and not has_login and not has_github_cookies:
+				print(f'ERROR: Account {i + 1} must have cookies, email+password, or github_cookies')
 				return None
 
 			if 'name' in account_dict and not account_dict['name']:

@@ -21,6 +21,9 @@ from dotenv import load_dotenv
 
 from utils.browser import (
 	BrowserLoginResult,
+	click_github_login_entry,
+	confirm_github_oauth,
+	get_session_cookie_value,
 	has_session_cookie,
 	is_logged_in,
 	launch_login_context,
@@ -31,6 +34,7 @@ from utils.browser import (
 	save_login_screenshot,
 	take_pending_screenshots,
 	verify_browser_login,
+	wait_for_session_cookie,
 	wait_for_waf_ready,
 )
 from utils.config import AccountConfig, AppConfig, load_accounts_config
@@ -85,6 +89,50 @@ def parse_cookies(cookies_data):
 				cookies_dict[key] = value
 		return cookies_dict
 	return {}
+
+
+def parse_github_cookies(cookies_data) -> list[dict] | None:
+	"""将 GitHub Cookie 导出格式转换为浏览器可注入的 Cookie 列表。"""
+	if isinstance(cookies_data, str):
+		try:
+			cookies_data = json.loads(cookies_data)
+		except json.JSONDecodeError:
+			cookies_data = parse_cookies(cookies_data)
+
+	if isinstance(cookies_data, dict):
+		cookies_data = [{'name': name, 'value': value} for name, value in cookies_data.items()]
+	if not isinstance(cookies_data, list):
+		return None
+
+	parsed = []
+	for item in cookies_data:
+		if not isinstance(item, dict) or not item.get('name') or item.get('value') is None:
+			continue
+		domain = str(item.get('domain') or '.github.com').lstrip('.')
+		if domain != 'github.com' and not domain.endswith('.github.com'):
+			continue
+		cookie = {
+			'name': str(item['name']),
+			'value': str(item['value']),
+			'domain': str(item.get('domain') or '.github.com'),
+			'path': str(item.get('path') or '/'),
+		}
+		expires = item.get('expires', item.get('expirationDate'))
+		try:
+			expires_value = float(expires) if expires not in (None, '') else None
+		except (TypeError, ValueError):
+			expires_value = None
+		if expires_value is not None and expires_value > 0:
+			cookie['expires'] = expires_value
+		for key in ('httpOnly', 'secure'):
+			if key in item and item[key] is not None:
+				cookie[key] = bool(item[key])
+		same_site = str(item.get('sameSite') or '').lower()
+		same_site_map = {'strict': 'Strict', 'lax': 'Lax', 'none': 'None', 'no_restriction': 'None'}
+		if same_site in same_site_map:
+			cookie['sameSite'] = same_site_map[same_site]
+		parsed.append(cookie)
+	return parsed or None
 
 
 async def get_waf_cookies_with_browser(
@@ -224,12 +272,108 @@ async def login_with_credentials(
 			success_msg += f', api_user={api_user}'
 		print(success_msg)
 		await context.close()
-		return BrowserLoginResult(cookies=all_cookies, api_user=api_user)
+		return BrowserLoginResult(cookies=all_cookies, api_user=api_user, user_profile=user_profile)
 
 	except Exception as e:
 		print(f'[FAILED] {account_name}: Error during login: {e}')
 		if page is not None:
 			await save_login_screenshot(page, provider_name, account_name, 'login-error')
+		await context.close()
+		return None
+
+
+async def login_with_github_cookies(
+	account_name: str,
+	provider_config,
+	provider_name: str,
+	github_cookies,
+) -> BrowserLoginResult | None:
+	"""使用导出的 GitHub 登录 Cookie 完成 AgentRouter OAuth 登录。"""
+	print(f'[PROCESSING] {account_name}: Starting GitHub OAuth login...')
+	cookies = parse_github_cookies(github_cookies)
+	if not cookies:
+		print(f'[FAILED] {account_name}: Invalid github_cookies format')
+		return None
+
+	settings = load_browser_login_settings(account_name, provider_name, persist_profile=False)
+	timeout_ms = settings.wait_timeout_ms
+	try:
+		context = await launch_login_context(settings, use_proxy=provider_config.use_proxy)
+	except Exception as e:
+		print(f'[FAILED] {account_name}: Browser launch failed: {e}')
+		return None
+
+	page = None
+	try:
+		await context.add_cookies(cookies)
+		page = await context.new_page()
+		await prepare_browser_page(page)
+		login_url = f'{provider_config.domain}{provider_config.login_path}'
+		await navigate_login_page(
+			page,
+			login_url,
+			timeout_ms,
+			provider=provider_name,
+			account_name=account_name,
+		)
+
+		initial_session_cookie = await get_session_cookie_value(page, cookie_url=provider_config.domain)
+		pages_before_oauth = tuple(context.pages)
+		clicked_github = await click_github_login_entry(
+			page,
+			min(timeout_ms, 30_000),
+			provider=provider_name,
+			account_name=account_name,
+		)
+		oauth_page = None
+		for _ in range(20):
+			oauth_page = next((candidate for candidate in context.pages if candidate not in pages_before_oauth), None)
+			if oauth_page is not None:
+				break
+			await asyncio.sleep(0.25)
+
+		if oauth_page is not None:
+			print(f'[INFO] {account_name}: GitHub OAuth opened in a new browser page')
+		await confirm_github_oauth(oauth_page or page, min(timeout_ms, 10_000))
+
+		if not clicked_github:
+			print(f'[FAILED] {account_name}: GitHub login button was not found')
+			await context.close()
+			return None
+
+		session_changed = await wait_for_session_cookie(
+			page,
+			min(timeout_ms, 15_000),
+			cookie_url=provider_config.domain,
+			previous_value=initial_session_cookie,
+		)
+		if not session_changed:
+			print(f'[FAILED] {account_name}: GitHub OAuth did not create a new AgentRouter session')
+			await save_login_screenshot(page, provider_name, account_name, 'github-oauth-session-timeout')
+			await context.close()
+			return None
+
+		user_profile = await verify_browser_login(page, f'{provider_config.domain}/console', timeout_ms)
+		if not user_profile:
+			print(f'[FAILED] {account_name}: GitHub OAuth login was not verified')
+			await save_login_screenshot(page, provider_name, account_name, 'github-oauth-not-authenticated')
+			await context.close()
+			return None
+
+		all_cookies = {
+			cookie.get('name'): cookie.get('value')
+			for cookie in await context.cookies()
+			if cookie.get('name') and cookie.get('value')
+		}
+		api_user = str(user_profile['id']) if user_profile.get('id') is not None else None
+		print(f'[SUCCESS] {account_name}: GitHub OAuth login successful')
+		await context.close()
+		return BrowserLoginResult(cookies=all_cookies, api_user=api_user, user_profile=user_profile)
+
+	except Exception as e:
+		print(f'[FAILED] {account_name}: Error during GitHub OAuth login: {e}')
+		if page is not None:
+			await save_login_screenshot(page, provider_name, account_name, 'github-oauth-error')
 		await context.close()
 		return None
 
@@ -254,6 +398,25 @@ def get_user_info(client, headers, user_info_url: str):
 		return {'success': False, 'error': f'Failed to get user info: HTTP {response.status_code}'}
 	except Exception as e:
 		return {'success': False, 'error': f'Failed to get user info: {str(e)[:50]}...'}
+
+
+def user_info_from_browser_profile(user_profile: dict | None) -> dict | None:
+	"""将浏览器登录时捕获的用户资料转换为通知格式。"""
+	if not isinstance(user_profile, dict):
+		return None
+	try:
+		quota_raw = float(user_profile['quota'])
+		used_raw = float(user_profile['used_quota'])
+	except (KeyError, TypeError, ValueError):
+		return None
+	quota = round(quota_raw / 500000, 2)
+	used_quota = round(used_raw / 500000, 2)
+	return {
+		'success': True,
+		'quota': quota,
+		'used_quota': used_quota,
+		'display': f':money: Current balance: ${quota}, Used: ${used_quota}',
+	}
 
 
 async def prepare_cookies(account_name: str, provider_config, user_cookies: dict) -> dict | None:
@@ -362,11 +525,30 @@ async def check_in_account(account: AccountConfig, account_index: int, app_confi
 
 	print(f'[INFO] {account_name}: Using provider "{account.provider}" ({provider_config.domain})')
 
-	# 邮箱密码优先
+	# GitHub OAuth 优先：AgentRouter 没有站点密码时，通过 GitHub 登录事件触发签到。
 	all_cookies = None
 	resolved_api_user: str | None = None
 	auth_method = None
-	if account.has_login_credentials():
+	if account.has_github_cookies():
+		if account.provider != 'agentrouter':
+			print(f'[FAILED] {account_name}: github_cookies is supported only for agentrouter')
+			return False, None, None
+		login_result = await login_with_github_cookies(
+			account_name,
+			provider_config,
+			account.provider,
+			account.github_cookies,
+		)
+		if not login_result:
+			return False, None, None
+		user_info = user_info_from_browser_profile(login_result.user_profile)
+		if not user_info:
+			print(f'[FAILED] {account_name}: OAuth login succeeded but user balance was not returned')
+			return False, None, None
+		print(f'[INFO] {account_name}: Check-in completed during GitHub OAuth login')
+		print(user_info['display'])
+		return True, None, user_info
+	elif account.has_login_credentials():
 		print(f'[INFO] {account_name}: Attempting email/password login (priority)...')
 		assert account.email is not None and account.password is not None
 		login_result = await login_with_credentials(
@@ -380,6 +562,14 @@ async def check_in_account(account: AccountConfig, account_index: int, app_confi
 			all_cookies = login_result.cookies
 			resolved_api_user = login_result.api_user
 			auth_method = 'email/password'
+			if not provider_config.needs_manual_check_in():
+				user_info = user_info_from_browser_profile(login_result.user_profile)
+				if user_info:
+					print(f'[INFO] {account_name}: Check-in completed during browser login')
+					print(user_info['display'])
+					return True, None, user_info
+				print(f'[FAILED] {account_name}: Browser login did not return user balance')
+				return False, None, None
 		else:
 			print(f'[FAILED] {account_name}: Email/password login failed, will not use stale session cookies')
 			return False, None, None
