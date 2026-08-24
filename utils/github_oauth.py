@@ -189,7 +189,18 @@ def login_agentrouter_with_github_http(
 
 	with httpx.Client(**_client_kwargs(proxy_url)) as agent_client:
 		status_response = agent_client.get(f'{domain}/api/status', headers=agent_headers)
-		status_data = _json_data(status_response, 'AgentRouter status request')
+		try:
+			status_data = _json_data(status_response, 'AgentRouter status request')
+		except GitHubOAuthHTTPError:
+			# Some subscription nodes return a branded HTML page for this public endpoint
+			# while still reporting HTTP 200. Retry the public, credential-free request
+			# without the node before giving up; state/callback remain on the configured
+			# proxy so the authenticated flow keeps the expected egress.
+			if not proxy_url:
+				raise
+			with httpx.Client(**_client_kwargs(None)) as direct_client:
+				direct_response = direct_client.get(f'{domain}/api/status', headers=agent_headers)
+				status_data = _json_data(direct_response, 'AgentRouter direct status request')
 		client_id = status_data.get('github_client_id') if isinstance(status_data, dict) else None
 		if not client_id:
 			raise GitHubOAuthHTTPError('AgentRouter did not publish a GitHub OAuth client id')
