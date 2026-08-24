@@ -12,6 +12,8 @@ def test_proxy_setup_probes_agentrouter_and_general_target():
 	assert 'PROXY_NAMES' in script
 	assert 'http://127.0.0.1:9090/proxies/CHECKIN' in script
 	assert 'providers/proxies/subscription' in script
-	assert 'select(. != "COMPATIBLE")' in script
+	assert '.proxies[]?.name | select(. != "COMPATIBLE")' in script
+	assert 'GROUP_NAMES' in script
+	assert 'Waiting for CHECKIN proxy group' in script
 	assert 'selected_node_index=-1' in script
 	assert 'Testing proxy node' in script

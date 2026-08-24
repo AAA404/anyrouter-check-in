@@ -77,12 +77,12 @@ PROXY_URL="http://127.0.0.1:${PROXY_PORT}"
 READY=false
 PROBE_BODY="${PROXY_DIR}/probe-response.txt"
 PROXY_NAMES=()
-for _ in $(seq 1 30); do
-	mapfile -t PROXY_NAMES < <(curl -fsS --max-time 2 http://127.0.0.1:9090/providers/proxies/subscription 2>/dev/null | jq -r '.proxies | keys[] | select(. != "COMPATIBLE")' 2>/dev/null || true)
+for poll_attempt in $(seq 1 30); do
+	mapfile -t PROXY_NAMES < <(curl -fsS --max-time 2 http://127.0.0.1:9090/providers/proxies/subscription 2>/dev/null | jq -r '.proxies[]?.name | select(. != "COMPATIBLE")' 2>/dev/null || true)
 	if [[ ${#PROXY_NAMES[@]} -gt 0 ]]; then
 		break
 	fi
-	echo "[INFO] Waiting for subscription proxy nodes (${_}/30)..."
+	echo "[INFO] Waiting for subscription proxy nodes (${poll_attempt}/30)..."
 	sleep 1
 done
 if [[ ${#PROXY_NAMES[@]} -eq 0 ]]; then
@@ -92,6 +92,23 @@ if [[ ${#PROXY_NAMES[@]} -eq 0 ]]; then
 	fi
 	exit 0
 fi
+GROUP_NAMES=()
+for poll_attempt in $(seq 1 30); do
+	mapfile -t GROUP_NAMES < <(curl -fsS --max-time 2 http://127.0.0.1:9090/proxies/CHECKIN 2>/dev/null | jq -r '.all[] | select(. != "COMPATIBLE" and . != "DIRECT" and . != "REJECT")' 2>/dev/null || true)
+	if [[ ${#GROUP_NAMES[@]} -gt 0 ]]; then
+		break
+	fi
+	echo "[INFO] Waiting for CHECKIN proxy group (${poll_attempt}/30)..."
+	sleep 1
+done
+if [[ ${#GROUP_NAMES[@]} -eq 0 ]]; then
+	echo "[FAILED] CHECKIN proxy group has no usable subscription nodes"
+	if [[ "${PROXY_REQUIRED}" == "true" ]]; then
+		exit 1
+	fi
+	exit 0
+fi
+PROXY_NAMES=("${GROUP_NAMES[@]}")
 echo "[INFO] Loaded ${#PROXY_NAMES[@]} proxy nodes; validating AgentRouter API responses"
 selected_node_index=-1
 for attempt in $(seq 1 45); do
@@ -99,9 +116,13 @@ for attempt in $(seq 1 45); do
 	if [[ ${node_index} -ne ${selected_node_index} ]]; then
 		node_name="${PROXY_NAMES[${node_index}]}"
 		selection_payload="$(jq -nc --arg name "${node_name}" '{name: $name}')"
-		if ! curl -fsS --max-time 5 -X PUT -H 'Content-Type: application/json' \
-			-d "${selection_payload}" http://127.0.0.1:9090/proxies/CHECKIN >/dev/null 2>&1; then
+		selection_code="$(curl -sS --max-time 5 -X PUT -H 'Content-Type: application/json' \
+			-d "${selection_payload}" -o /dev/null -w '%{http_code}' http://127.0.0.1:9090/proxies/CHECKIN 2>/dev/null || true)"
+		if [[ ! "${selection_code}" =~ ^2[0-9][0-9]$ ]]; then
 			echo "[INFO] Unable to select proxy node $((node_index + 1))/${#PROXY_NAMES[@]}"
+			if [[ ${attempt} -eq 1 ]]; then
+				echo "[INFO] Mihomo controller rejected node selection (HTTP ${selection_code:-no response})"
+			fi
 			continue
 		fi
 		selected_node_index=${node_index}
