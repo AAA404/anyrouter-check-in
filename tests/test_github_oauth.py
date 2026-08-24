@@ -149,6 +149,53 @@ def test_agentrouter_http_oauth_completes_public_flow(monkeypatch):
 	assert any(kind == 'github' and 'client_id=client-id' in url for kind, url, _params in requests)
 
 
+def test_agentrouter_http_oauth_accepts_canonical_official_callback_domain(monkeypatch):
+	class FakeClient:
+		created = 0
+
+		def __init__(self, **_kwargs):
+			self.kind = 'agentrouter' if FakeClient.created == 0 else 'github'
+			FakeClient.created += 1
+			self.cookies = httpx.Cookies()
+
+		def __enter__(self):
+			return self
+
+		def __exit__(self, *_args):
+			return None
+
+		def close(self):
+			return None
+
+		def get(self, url, *, headers=None, params=None):
+			request_url = httpx.URL(url, params=params) if params else httpx.URL(url)
+			request = httpx.Request('GET', request_url, headers=headers)
+			if self.kind == 'github':
+				return httpx.Response(
+					302,
+					headers={'location': 'https://agentrouter.org/oauth/github?code=code&state=state'},
+					request=request,
+				)
+			if request_url.path == '/api/status':
+				return httpx.Response(200, text='<html>blocked</html>', request=request)
+			if request_url.path == '/api/oauth/state':
+				return httpx.Response(200, json={'success': True, 'data': 'state'}, request=request)
+			if request_url.path == '/api/oauth/github':
+				return httpx.Response(200, json={'success': True, 'data': {'id': 1}}, request=request)
+			if request_url.path == '/api/user/self':
+				return httpx.Response(200, json={'success': True, 'data': {'id': 1}}, request=request)
+			raise AssertionError(f'Unexpected request: {request_url}')
+
+	monkeypatch.setattr('utils.github_oauth.httpx.Client', FakeClient)
+	result = login_agentrouter_with_github_http(
+		'https://ps.air-outer.com',
+		'/api/user/self',
+		[{'name': 'user_session', 'value': 'secret', 'domain': '.github.com', 'path': '/'}],
+	)
+
+	assert result.user_profile['id'] == 1
+
+
 def test_agentrouter_http_oauth_rejects_github_login_page(monkeypatch):
 	class FakeClient:
 		created = 0

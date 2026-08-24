@@ -106,6 +106,11 @@ def _is_github_url(url: str) -> bool:
 	return host == 'github.com' or host.endswith('.github.com')
 
 
+def _is_official_agentrouter_url(url: str) -> bool:
+	host = (urlparse(url).hostname or '').lower()
+	return host in {(urlparse(domain).hostname or '').lower() for domain in AGENTROUTER_OFFICIAL_DOMAINS}
+
+
 def _extract_callback_params(callback_url: str, expected_state: str) -> tuple[str, str]:
 	query = parse_qs(urlparse(callback_url).query)
 	if query.get('error'):
@@ -147,7 +152,8 @@ def _request_github_callback(
 				raise GitHubOAuthHTTPError('GitHub OAuth returned a redirect without Location')
 			next_url = urljoin(current_url, location)
 			if not _is_github_url(next_url):
-				if (urlparse(next_url).hostname or '').lower() != callback_host:
+				next_host = (urlparse(next_url).hostname or '').lower()
+				if next_host != callback_host and not _is_official_agentrouter_url(next_url):
 					raise GitHubOAuthHTTPError('GitHub OAuth redirected to an unexpected callback host')
 				return _extract_callback_params(next_url, state)
 			current_url = next_url
