@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from utils.debug import debug_print, is_debug_enabled
 from utils.popups import dismiss_popups, setup_popup_guard
-from utils.proxy import get_playwright_proxy
+from utils.proxy import get_agentrouter_browser_proxy, get_playwright_proxy
 
 if TYPE_CHECKING:
 	from playwright.async_api import BrowserContext, Locator, Page
@@ -249,7 +249,11 @@ async def launch_login_context(settings: BrowserLoginSettings, *, use_proxy: boo
 		if settings.humanize:
 			launch_kwargs['human_preset'] = 'careful'
 
-	proxy = get_playwright_proxy(use_proxy=use_proxy)
+	proxy = (
+		get_agentrouter_browser_proxy(use_proxy=use_proxy)
+		if not settings.use_cloakbrowser
+		else get_playwright_proxy(use_proxy=use_proxy)
+	)
 	if proxy:
 		launch_kwargs['proxy'] = proxy
 		if is_debug_enabled():
@@ -274,6 +278,8 @@ async def launch_login_context(settings: BrowserLoginSettings, *, use_proxy: boo
 		return _EphemeralBrowserContext(context, browser)
 
 	from playwright.async_api import async_playwright
+
+	launch_kwargs['args'] = ['--disable-quic']
 
 	playwright = await async_playwright().start()
 	browser = None

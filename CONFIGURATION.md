@@ -100,6 +100,8 @@ AgentRouter 默认使用无头 Chromium，并默认关闭 humanize；也可以�
 
 AgentRouter 登录默认使用普通 Playwright Chromium，不使用 CloakBrowser 的自定义 Chromium 网络栈；可通过 `CHECKIN_AGENTROUTER_BROWSER_PATH` 指定浏览器可执行文件路径。AnyRouter 仍使用 CloakBrowser。
 
+当 `CHECKIN_PROXY_URL` 是本地 mihomo mixed-port（例如 `http://127.0.0.1:7890`）时，AgentRouter 浏览器会自动改用同一端口的 SOCKS5，并禁用 QUIC；HTTP API 请求仍使用 HTTP 代理。
+
 ## 5. 手动验证
 
 1. 打开仓库的 **Actions** 页面。

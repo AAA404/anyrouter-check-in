@@ -3,6 +3,7 @@ import pytest
 from checkin import add_github_cookies, check_in_account, parse_github_cookies, user_info_from_browser_profile
 from utils.browser import BrowserLoginResult, wait_for_session_cookie
 from utils.config import AccountConfig, AppConfig, ProviderConfig
+from utils.proxy import get_agentrouter_browser_proxy
 
 
 def test_parse_github_cookies_strips_exporter_specific_fields():
@@ -53,6 +54,12 @@ def test_parse_github_host_cookie_uses_host_only_url():
 			'secure': True,
 		}
 	]
+
+
+def test_agentrouter_browser_proxy_uses_socks_for_local_mixed_port(monkeypatch):
+	monkeypatch.setenv('CHECKIN_PROXY_URL', 'http://127.0.0.1:7890')
+
+	assert get_agentrouter_browser_proxy() == {'server': 'socks5://127.0.0.1:7890'}
 
 
 @pytest.mark.asyncio

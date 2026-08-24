@@ -18,3 +18,14 @@ def get_playwright_proxy(*, use_proxy: bool = True) -> dict[str, str] | None:
 	if not server:
 		return None
 	return {'server': server}
+
+
+def get_agentrouter_browser_proxy(*, use_proxy: bool = True) -> dict[str, str] | None:
+	"""Return the AgentRouter browser proxy, preferring SOCKS for local mixed-port."""
+	proxy = get_playwright_proxy(use_proxy=use_proxy)
+	if not proxy:
+		return None
+	server = proxy['server']
+	if server.startswith('http://127.0.0.1:'):
+		proxy['server'] = f'socks5://{server.removeprefix("http://")}'
+	return proxy

@@ -200,8 +200,9 @@ async def test_launch_login_context_uses_system_chrome_for_agentrouter(monkeypat
 
 	assert chromium.launch_kwargs == {
 		'headless': True,
-		'proxy': {'server': 'http://127.0.0.1:7890'},
+		'proxy': {'server': 'socks5://127.0.0.1:7890'},
 		'executable_path': '/usr/bin/google-chrome',
+		'args': ['--disable-quic'],
 	}
 	assert browser.context_kwargs == {'viewport': {'width': 1920, 'height': 1080}}
 	assert browser.context.closed is True
