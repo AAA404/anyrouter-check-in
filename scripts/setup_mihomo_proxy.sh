@@ -78,10 +78,11 @@ READY=false
 PROBE_BODY="${PROXY_DIR}/probe-response.txt"
 PROXY_NAMES=()
 for _ in $(seq 1 30); do
-	mapfile -t PROXY_NAMES < <(curl -fsS --max-time 2 http://127.0.0.1:9090/proxies/CHECKIN 2>/dev/null | jq -r '.all[]' 2>/dev/null || true)
+	mapfile -t PROXY_NAMES < <(curl -fsS --max-time 2 http://127.0.0.1:9090/providers/proxies/subscription 2>/dev/null | jq -r '.proxies | keys[] | select(. != "COMPATIBLE")' 2>/dev/null || true)
 	if [[ ${#PROXY_NAMES[@]} -gt 0 ]]; then
 		break
 	fi
+	echo "[INFO] Waiting for subscription proxy nodes (${_}/30)..."
 	sleep 1
 done
 if [[ ${#PROXY_NAMES[@]} -eq 0 ]]; then
