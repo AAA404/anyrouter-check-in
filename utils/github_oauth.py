@@ -9,6 +9,9 @@ from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 import httpx
 
 GITHUB_AUTHORIZE_URL = 'https://github.com/login/oauth/authorize'
+# AgentRouter 官方前端公开的 OAuth App Client ID。/api/status 仅用于发现它，
+# 但部分 Actions 出口会把该公开接口替换成 HTML，因此保留固定回退值。
+DEFAULT_AGENTROUTER_GITHUB_CLIENT_ID = 'Ov23lidtiR4LeVZvVRNL'
 REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
 USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36'
 
@@ -191,19 +194,11 @@ def login_agentrouter_with_github_http(
 		status_response = agent_client.get(f'{domain}/api/status', headers=agent_headers)
 		try:
 			status_data = _json_data(status_response, 'AgentRouter status request')
-		except GitHubOAuthHTTPError:
-			# Some subscription nodes return a branded HTML page for this public endpoint
-			# while still reporting HTTP 200. Retry the public, credential-free request
-			# without the node before giving up; state/callback remain on the configured
-			# proxy so the authenticated flow keeps the expected egress.
-			if not proxy_url:
-				raise
-			with httpx.Client(**_client_kwargs(None)) as direct_client:
-				direct_response = direct_client.get(f'{domain}/api/status', headers=agent_headers)
-				status_data = _json_data(direct_response, 'AgentRouter direct status request')
+		except GitHubOAuthHTTPError as exc:
+			print(f'[WARN] AgentRouter status discovery failed, using built-in public GitHub client id: {exc}')
+			status_data = None
 		client_id = status_data.get('github_client_id') if isinstance(status_data, dict) else None
-		if not client_id:
-			raise GitHubOAuthHTTPError('AgentRouter did not publish a GitHub OAuth client id')
+		client_id = client_id or DEFAULT_AGENTROUTER_GITHUB_CLIENT_ID
 
 		state_response = agent_client.get(f'{domain}/api/oauth/state?mode=login', headers=agent_headers)
 		state = _json_data(state_response, 'AgentRouter OAuth state request')
