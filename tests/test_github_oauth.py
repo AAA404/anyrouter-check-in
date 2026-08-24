@@ -422,10 +422,20 @@ async def test_agentrouter_github_oauth_returns_browser_balance_without_httpx(mo
 	monkeypatch.setattr('checkin.login_with_github_cookies', fake_login)
 	monkeypatch.setattr('checkin.run_check_in_requests', fail_httpx)
 
-	success, before, after = await check_in_account(account, 0, AppConfig(providers={'agentrouter': provider}))
+	success, before, after = await check_in_account(
+		account,
+		0,
+		AppConfig(providers={'agentrouter': provider}),
+		{'quota': 20.0, 'used': 0.5},
+	)
 
 	assert success is True
-	assert before is None
+	assert before == {
+		'success': True,
+		'quota': 20.0,
+		'used_quota': 0.5,
+		'display': ':money: Current balance: $20.0, Used: $0.5',
+	}
 	assert after == {
 		'success': True,
 		'quota': 25.0,

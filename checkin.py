@@ -46,6 +46,7 @@ from utils.proxy import get_playwright_proxy, get_proxy_server
 load_dotenv()
 
 BALANCE_HASH_FILE = 'balance_hash.txt'
+BALANCE_STATE_FILE = 'balance_state.json'
 
 
 def load_balance_hash():
@@ -66,6 +67,32 @@ def save_balance_hash(balance_hash):
 			f.write(balance_hash)
 	except Exception as e:
 		print(f'Warning: Failed to save balance hash: {e}')
+
+
+def load_balance_state() -> dict:
+	"""加载上一次成功获取的余额快照。"""
+	try:
+		if os.path.exists(BALANCE_STATE_FILE):
+			with open(BALANCE_STATE_FILE, 'r', encoding='utf-8') as f:
+				state = json.load(f)
+			if isinstance(state, dict):
+				return {
+					str(key): value
+					for key, value in state.items()
+					if isinstance(value, dict) and 'quota' in value and 'used' in value
+				}
+	except (OSError, json.JSONDecodeError, TypeError, ValueError):
+		pass
+	return {}
+
+
+def save_balance_state(state: dict) -> None:
+	"""保存不含 Cookie 的余额快照。"""
+	try:
+		with open(BALANCE_STATE_FILE, 'w', encoding='utf-8') as f:
+			json.dump(state, f, ensure_ascii=True, sort_keys=True, separators=(',', ':'))
+	except (OSError, TypeError, ValueError) as e:
+		print(f'Warning: Failed to save balance state: {e}')
 
 
 def generate_balance_hash(balances):
@@ -484,6 +511,23 @@ def user_info_from_browser_profile(user_profile: dict | None) -> dict | None:
 	}
 
 
+def user_info_from_balance_snapshot(snapshot: dict | None) -> dict | None:
+	"""将历史余额快照转换为与接口资料相同的通知格式。"""
+	if not isinstance(snapshot, dict):
+		return None
+	try:
+		quota = round(float(snapshot['quota']), 2)
+		used_quota = round(float(snapshot['used']), 2)
+	except (KeyError, TypeError, ValueError):
+		return None
+	return {
+		'success': True,
+		'quota': quota,
+		'used_quota': used_quota,
+		'display': f':money: Current balance: ${quota}, Used: ${used_quota}',
+	}
+
+
 async def prepare_cookies(account_name: str, provider_config, user_cookies: dict) -> dict | None:
 	"""准备请求所需的 cookies（可能包含 WAF cookies）"""
 	waf_cookies = {}
@@ -545,17 +589,22 @@ def execute_check_in(client, account_name: str, provider_config, headers: dict):
 
 def format_check_in_notification(detail: dict) -> str:
 	"""格式化签到通知消息"""
-	lines = [
-		f'[CHECK-IN] {detail["name"]}',
-		'  ━━━━━━━━━━━━━━━━━━━━',
-		'  签到前',
-		f'     余额: ${detail["before_quota"]:.2f}  |  累计消耗: ${detail["before_used"]:.2f}',
-		'  签到后',
-		f'     余额: ${detail["after_quota"]:.2f}  |  累计消耗: ${detail["after_used"]:.2f}',
-	]
+	lines = [f'[CHECK-IN] {detail["name"]}', '  ━━━━━━━━━━━━━━━━━━━━']
+	if detail.get('before_quota') is None:
+		lines.extend([
+			'  当前余额',
+			f'     余额: ${detail["after_quota"]:.2f}  |  累计消耗: ${detail["after_used"]:.2f}',
+		])
+	else:
+		lines.extend([
+			'  签到前',
+			f'     余额: ${detail["before_quota"]:.2f}  |  累计消耗: ${detail["before_used"]:.2f}',
+			'  签到后',
+			f'     余额: ${detail["after_quota"]:.2f}  |  累计消耗: ${detail["after_used"]:.2f}',
+		])
 
-	has_reward = detail['check_in_reward'] != 0
-	has_usage = detail['usage_increase'] != 0
+	has_reward = detail.get('check_in_reward') is not None and detail['check_in_reward'] != 0
+	has_usage = detail.get('usage_increase') is not None and detail['usage_increase'] != 0
 
 	if has_reward or has_usage:
 		lines.append('  ━━━━━━━━━━━━━━━━━━━━')
@@ -569,16 +618,21 @@ def format_check_in_notification(detail: dict) -> str:
 		if has_usage:
 			lines.append(f'  期间消耗: ${detail["usage_increase"]:.2f}')
 
-		if detail['balance_change'] != 0:
+		if detail.get('balance_change') is not None and detail['balance_change'] != 0:
 			change_symbol = '+' if detail['balance_change'] > 0 else ''
 			lines.append(f'  余额变化: {change_symbol}${detail["balance_change"]:.2f}')
-	else:
+	elif detail.get('before_quota') is not None:
 		lines.extend(['  ━━━━━━━━━━━━━━━━━━━━', '  今日已签到，无变化'])
 
 	return '\n'.join(lines)
 
 
-async def check_in_account(account: AccountConfig, account_index: int, app_config: AppConfig):
+async def check_in_account(
+	account: AccountConfig,
+	account_index: int,
+	app_config: AppConfig,
+	previous_balance: dict | None = None,
+):
 	"""为单个账号执行签到操作"""
 	account_name = account.get_display_name(account_index)
 	print(f'\n[PROCESSING] Starting to process {account_name}')
@@ -612,7 +666,7 @@ async def check_in_account(account: AccountConfig, account_index: int, app_confi
 			return False, None, None
 		print(f'[INFO] {account_name}: Check-in completed during GitHub OAuth login')
 		print(user_info['display'])
-		return True, None, user_info
+		return True, user_info_from_balance_snapshot(previous_balance), user_info
 	elif account.has_login_credentials():
 		print(f'[INFO] {account_name}: Attempting email/password login (priority)...')
 		assert account.email is not None and account.password is not None
@@ -632,7 +686,7 @@ async def check_in_account(account: AccountConfig, account_index: int, app_confi
 				if user_info:
 					print(f'[INFO] {account_name}: Check-in completed during browser login')
 					print(user_info['display'])
-					return True, None, user_info
+					return True, user_info_from_balance_snapshot(previous_balance), user_info
 				print(f'[FAILED] {account_name}: Browser login did not return user balance')
 				return False, None, None
 		else:
@@ -759,6 +813,7 @@ async def main():
 	print(f'[INFO] Found {len(accounts)} account configurations')
 
 	last_balance_hash = load_balance_hash()
+	previous_balances = load_balance_state()
 
 	success_count = 0
 	total_count = len(accounts)
@@ -771,7 +826,9 @@ async def main():
 	for i, account in enumerate(accounts):
 		account_key = f'account_{i + 1}'
 		try:
-			success, user_info_before, user_info_after = await check_in_account(account, i, app_config)
+			success, user_info_before, user_info_after = await check_in_account(
+				account, i, app_config, previous_balances.get(account_key)
+			)
 			if success:
 				success_count += 1
 
@@ -788,9 +845,13 @@ async def main():
 				current_used = user_info_after['used_quota']
 				current_balances[account_key] = {'quota': current_quota, 'used': current_used}
 
-				if user_info_before and user_info_before.get('success'):
-					before_quota = user_info_before['quota']
-					before_used = user_info_before['used_quota']
+				before_available = user_info_before and user_info_before.get('success')
+				before_quota = user_info_before['quota'] if before_available else None
+				before_used = user_info_before['used_quota'] if before_available else None
+				check_in_reward = None
+				usage_increase = None
+				balance_change = None
+				if before_available:
 					after_quota = user_info_after['quota']
 					after_used = user_info_after['used_quota']
 
@@ -801,17 +862,17 @@ async def main():
 					usage_increase = after_used - before_used
 					balance_change = after_quota - before_quota
 
-					account_check_in_details[account_key] = {
-						'name': account.get_display_name(i),
-						'before_quota': before_quota,
-						'before_used': before_used,
-						'after_quota': after_quota,
-						'after_used': after_used,
-						'check_in_reward': check_in_reward,
-						'usage_increase': usage_increase,
-						'balance_change': balance_change,
-						'success': success,
-					}
+				account_check_in_details[account_key] = {
+					'name': account.get_display_name(i),
+					'before_quota': before_quota,
+					'before_used': before_used,
+					'after_quota': current_quota,
+					'after_used': current_used,
+					'check_in_reward': check_in_reward,
+					'usage_increase': usage_increase,
+					'balance_change': balance_change,
+					'success': success,
+				}
 
 			if should_notify_this_account:
 				account_name = account.get_display_name(i)
@@ -830,8 +891,11 @@ async def main():
 			notification_content.append(f'[FAIL] {account_name} exception: {str(e)[:50]}...')
 
 	current_balance_hash = generate_balance_hash(current_balances) if current_balances else None
+	first_balance_observation = any(
+		account_key in account_check_in_details and account_key not in previous_balances for account_key in current_balances
+	)
 	if current_balance_hash:
-		if last_balance_hash is None:
+		if last_balance_hash is None or first_balance_observation:
 			balance_changed = True
 			need_notify = True
 			print('[NOTIFY] First run detected, will send notification with current balances')
@@ -854,6 +918,9 @@ async def main():
 
 	if current_balance_hash:
 		save_balance_hash(current_balance_hash)
+		state_to_save = dict(previous_balances)
+		state_to_save.update(current_balances)
+		save_balance_state(state_to_save)
 
 	if need_notify and notification_content:
 		summary = [

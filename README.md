@@ -319,6 +319,8 @@ AgentRouter 默认通过 HTTP 客户端完成 GitHub OAuth，避免 GitHub Actio
 
 如果使用订阅脚本，workflow 会逐个选择订阅节点，并同时验证 AgentRouter OAuth state 接口返回有效 JSON、Google 连通性正常。只有通过业务接口验证的节点才会写入 `CHECKIN_PROXY_URL`，避免把 `HTTP 200` 的代理拦截 HTML 误判为可用响应。探测地址可以通过 `PROXY_TEST_URL` 和 `PROXY_TEST_URLS` 覆盖。
 
+通知中的余额统计同时支持 AnyRouter 和 AgentRouter。AgentRouter 会保存余额快照，后续通知可以显示签到前后余额、签到奖励、期间消耗和余额变化。
+
 ## 开启通知
 
 脚本支持多种通知方式，可以通过配置以下环境变量开启，如果 `webhook` 有要求安全设置，例如钉钉，可以在新建机器人时选择自定义关键词，填写 `AnyRouter`。

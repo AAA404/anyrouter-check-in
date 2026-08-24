@@ -104,6 +104,8 @@ AgentRouter 登录默认通过 HTTP 客户端完成公开的 GitHub OAuth 流程
 
 当 `CHECKIN_PROXY_URL` 是本地 mihomo mixed-port（例如 `http://127.0.0.1:7890`）时，AgentRouter 浏览器会自动改用同一端口的 SOCKS5，并禁用 QUIC；HTTP API 请求仍使用 HTTP 代理。
 
+余额通知会同时覆盖 AnyRouter 和 AgentRouter。AgentRouter 的 GitHub OAuth 返回余额后，workflow 会将每个账号的余额和累计消耗保存到 `balance_state.json` 缓存；首次观察到的账号显示当前余额，后续运行显示签到前后余额、签到奖励、期间消耗及余额变化。该文件不包含 Cookie 或代理信息。
+
 ## 5. 手动验证
 
 1. 打开仓库的 **Actions** 页面。
