@@ -138,6 +138,16 @@ class AppConfig:
 			except Exception as e:
 				print(f'[WARNING] Error loading PROVIDERS: {e}, using default configuration only')
 
+		# AgentRouter 提供官方备用域名时，可以用专用变量覆盖 PROVIDERS 中的旧域名。
+		# 该变量放在 PROVIDERS 解析之后，确保 Actions Secret 中遗留的域名不会覆盖
+		# workflow 明确指定的可用入口。
+		agentrouter_domain = os.getenv('AGENTROUTER_DOMAIN', '').strip().rstrip('/')
+		if agentrouter_domain:
+			agentrouter = providers.get('agentrouter')
+			if agentrouter:
+				agentrouter.domain = agentrouter_domain
+				print(f'[INFO] AgentRouter domain overridden by AGENTROUTER_DOMAIN: {agentrouter_domain}')
+
 		return cls(providers=providers)
 
 	def get_provider(self, name: str) -> ProviderConfig | None:

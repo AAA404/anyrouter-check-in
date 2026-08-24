@@ -29,6 +29,18 @@ def test_provider_profile_persistence_can_override_builtin(monkeypatch):
 	assert config.providers['agentrouter'].persist_profile is True
 
 
+def test_agentrouter_domain_override_has_priority_over_providers(monkeypatch):
+	monkeypatch.setenv(
+		'PROVIDERS',
+		json.dumps({'agentrouter': {'domain': 'https://agentrouter.org', 'use_proxy': True}}),
+	)
+	monkeypatch.setenv('AGENTROUTER_DOMAIN', 'https://ps.air-outer.com/')
+
+	config = AppConfig.load_from_env()
+
+	assert config.providers['agentrouter'].domain == 'https://ps.air-outer.com'
+
+
 def test_custom_provider_profile_persistence_defaults_to_false(monkeypatch):
 	monkeypatch.setenv('PROVIDERS', json.dumps({'custom': {'domain': 'https://custom.example.com'}}))
 

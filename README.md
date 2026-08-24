@@ -297,6 +297,7 @@ AgentRouter 的签到发生在登录事件中，不是独立调用 `/api/user/si
 
 - `PROVIDERS` 是可选的，不配置则使用内置的 `anyrouter` 和 `agentrouter`
 - 自定义的 provider 配置会覆盖同名的默认配置
+- `AGENTROUTER_DOMAIN` 可单独覆盖 AgentRouter 入口（优先级高于 `PROVIDERS`），官方备用域名为 `https://ps.air-outer.com`
 
 ## 代理配置（可选）
 
@@ -396,6 +397,7 @@ uv run python -m cloakbrowser install
 # 创建 .env 文件并配置（注意：JSON 必须是单行格式）
 # 示例：
 # ANYROUTER_ACCOUNTS=[{"name":"账号1","email":"your@email.com","password":"your_password"}]
+# AGENTROUTER_DOMAIN=https://ps.air-outer.com
 # PROVIDERS={"agentrouter":{"domain":"https://agentrouter.org"}}
 # PROXY_SUBSCRIPTION_URL=https://example.com/sub?token=xxx
 # CHECKIN_PROXY_URL=http://127.0.0.1:7890
