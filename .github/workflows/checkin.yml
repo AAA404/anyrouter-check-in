@@ -63,6 +63,18 @@ jobs:
         uv run python -m cloakbrowser install
         echo "✅ CloakBrowser 安装完成"
 
+    - name: 确认 AgentRouter 浏览器
+      run: |
+        if command -v google-chrome >/dev/null 2>&1 || \
+           command -v google-chrome-stable >/dev/null 2>&1 || \
+           command -v chromium >/dev/null 2>&1 || \
+           command -v chromium-browser >/dev/null 2>&1; then
+          echo "✅ 使用 Runner 自带 Chrome/Chromium"
+        else
+          uv run playwright install chromium
+          echo "✅ Playwright Chromium 安装完成"
+        fi
+
     - name: 恢复余额历史缓存
       uses: actions/cache@v5
       with:

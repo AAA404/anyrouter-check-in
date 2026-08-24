@@ -98,6 +98,8 @@ AgentRouter 的 GitHub OAuth 和 WAF 对 GitHub Actions 出口 IP 较敏感，�
 
 AgentRouter 默认使用无头 Chromium，并默认关闭 humanize；也可以通过 `CHECKIN_HEADLESS_AGENTROUTER` 和 `CHECKIN_HUMANIZE_AGENTROUTER` 单独覆盖。这是为了避免某些代理出口或站点 WAF 关闭 headed/拟人化 Chromium 的连接；AnyRouter 仍使用全局 `CHECKIN_HEADLESS` 和 `CHECKIN_HUMANIZE` 设置。
 
+AgentRouter 登录默认使用普通 Playwright Chromium，不使用 CloakBrowser 的自定义 Chromium 网络栈；可通过 `CHECKIN_AGENTROUTER_BROWSER_PATH` 指定浏览器可执行文件路径。AnyRouter 仍使用 CloakBrowser。
+
 ## 5. 手动验证
 
 1. 打开仓库的 **Actions** 页面。

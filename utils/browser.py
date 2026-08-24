@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import shutil
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -164,6 +165,7 @@ class BrowserLoginSettings:
 	profile_dir: Path
 	cloakbrowser_binary_path: str | None
 	persist_profile: bool
+	use_cloakbrowser: bool = True
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -190,6 +192,7 @@ def load_browser_login_settings(
 		profile_dir=profile_dir,
 		cloakbrowser_binary_path=os.getenv('CLOAKBROWSER_BINARY_PATH', '').strip() or None,
 		persist_profile=persist_profile,
+		use_cloakbrowser=provider != 'agentrouter',
 	)
 
 
@@ -199,9 +202,10 @@ def _ensure_binary_path(settings: BrowserLoginSettings) -> None:
 
 
 class _EphemeralBrowserContext:
-	def __init__(self, context: BrowserContext, browser) -> None:
+	def __init__(self, context: BrowserContext, browser, playwright=None) -> None:
 		self._context = context
 		self._browser = browser
+		self._playwright = playwright
 
 	def __getattr__(self, name: str):
 		return getattr(self._context, name)
@@ -210,23 +214,40 @@ class _EphemeralBrowserContext:
 		try:
 			await self._context.close(*args, **kwargs)
 		finally:
-			await self._browser.close()
+			try:
+				await self._browser.close()
+			finally:
+				if self._playwright is not None:
+					await self._playwright.stop()
+
+
+def _find_playwright_browser() -> str | None:
+	"""Find a system Chrome/Chromium executable for non-CloakBrowser providers."""
+	configured = os.getenv('CHECKIN_AGENTROUTER_BROWSER_PATH', '').strip()
+	if configured:
+		if not Path(configured).exists():
+			raise FileNotFoundError(f'CHECKIN_AGENTROUTER_BROWSER_PATH does not exist: {configured}')
+		return configured
+	for name in ('google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser'):
+		path = shutil.which(name)
+		if path:
+			return path
+	return None
 
 
 async def launch_login_context(settings: BrowserLoginSettings, *, use_proxy: bool = False) -> BrowserContext:
 	_ensure_binary_path(settings)
 	print(
 		f'[INFO] Browser mode: headless={str(settings.headless).lower()}, '
-		f'humanize={str(settings.humanize).lower()}'
+		f'humanize={str(settings.humanize).lower()}, '
+		f'engine={"cloakbrowser" if settings.use_cloakbrowser else "playwright"}'
 	)
 
-	launch_kwargs: dict = {
-		'headless': settings.headless,
-		'humanize': settings.humanize,
-		'viewport': {'width': 1920, 'height': 1080},
-	}
-	if settings.humanize:
-		launch_kwargs['human_preset'] = 'careful'
+	launch_kwargs: dict = {'headless': settings.headless}
+	if settings.use_cloakbrowser:
+		launch_kwargs['humanize'] = settings.humanize
+		if settings.humanize:
+			launch_kwargs['human_preset'] = 'careful'
 
 	proxy = get_playwright_proxy(use_proxy=use_proxy)
 	if proxy:
@@ -238,18 +259,41 @@ async def launch_login_context(settings: BrowserLoginSettings, *, use_proxy: boo
 	elif use_proxy:
 		print('[WARN] Provider requires proxy but CHECKIN_PROXY_URL is not set')
 
-	if settings.persist_profile:
+	context_kwargs = {'viewport': {'width': 1920, 'height': 1080}}
+	if settings.use_cloakbrowser and settings.persist_profile:
 		from cloakbrowser import launch_persistent_context_async
 
 		settings.profile_dir.mkdir(parents=True, exist_ok=True)
-		return await launch_persistent_context_async(str(settings.profile_dir), **launch_kwargs)
+		return await launch_persistent_context_async(str(settings.profile_dir), **launch_kwargs, **context_kwargs)
 
-	from cloakbrowser import launch_async
+	if settings.use_cloakbrowser:
+		from cloakbrowser import launch_async
 
-	context_kwargs = {'viewport': launch_kwargs.pop('viewport')}
-	browser = await launch_async(**launch_kwargs)
-	context = await browser.new_context(**context_kwargs)
-	return _EphemeralBrowserContext(context, browser)
+		browser = await launch_async(**launch_kwargs)
+		context = await browser.new_context(**context_kwargs)
+		return _EphemeralBrowserContext(context, browser)
+
+	from playwright.async_api import async_playwright
+
+	playwright = await async_playwright().start()
+	browser = None
+	try:
+		executable_path = _find_playwright_browser()
+		if executable_path:
+			launch_kwargs['executable_path'] = executable_path
+			print(f'[INFO] Playwright browser executable: {executable_path}')
+		else:
+			print('[INFO] Playwright browser executable: bundled default')
+		browser = await playwright.chromium.launch(**launch_kwargs)
+		context = await browser.new_context(**context_kwargs)
+		return _EphemeralBrowserContext(context, browser, playwright)
+	except BaseException:
+		try:
+			if browser is not None:
+				await browser.close()
+		finally:
+			await playwright.stop()
+		raise
 
 
 def get_screenshot_dir() -> Path:

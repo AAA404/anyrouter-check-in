@@ -40,6 +40,21 @@ def test_parse_github_cookies_supports_cookie_header_string():
 	]
 
 
+def test_parse_github_host_cookie_uses_host_only_url():
+	cookies = parse_github_cookies(
+		[{'name': '__Host-user_session_same_site', 'value': 'abc', 'domain': '.github.com', 'path': '/'}]
+	)
+
+	assert cookies == [
+		{
+			'name': '__Host-user_session_same_site',
+			'value': 'abc',
+			'url': 'https://github.com/',
+			'secure': True,
+		}
+	]
+
+
 @pytest.mark.asyncio
 async def test_add_github_cookies_ignores_a_rejected_cookie(monkeypatch):
 	class FakeContext:

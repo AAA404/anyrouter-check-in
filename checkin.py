@@ -111,12 +111,22 @@ def parse_github_cookies(cookies_data) -> list[dict] | None:
 		domain = str(item.get('domain') or '.github.com').lstrip('.')
 		if domain != 'github.com' and not domain.endswith('.github.com'):
 			continue
-		cookie = {
-			'name': str(item['name']),
+		name = str(item['name'])
+		cookie: dict[str, object] = {
+			'name': name,
 			'value': str(item['value']),
-			'domain': str(item.get('domain') or '.github.com'),
 			'path': str(item.get('path') or '/'),
 		}
+		if name.startswith('__Host-'):
+			# __Host- cookies must be host-only: no Domain attribute, Secure, Path=/.
+			cookie.pop('path', None)
+			cookie['url'] = 'https://github.com/'
+			cookie['secure'] = True
+		elif name.startswith('__Secure-'):
+			cookie['domain'] = str(item.get('domain') or '.github.com')
+			cookie['secure'] = True
+		else:
+			cookie['domain'] = str(item.get('domain') or '.github.com')
 		# Cookie exporter fields such as expires, sameSite and hostOnly vary by browser
 		# and can make CDP reject the whole batch. They are unnecessary for this short
 		# lived browser context, so only inject the fields GitHub OAuth needs.
