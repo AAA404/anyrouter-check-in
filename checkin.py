@@ -39,6 +39,7 @@ from utils.browser import (
 )
 from utils.config import AccountConfig, AppConfig, load_accounts_config
 from utils.debug import debug_print, is_debug_enabled
+from utils.github_oauth import GitHubOAuthHTTPError, login_agentrouter_with_github_http
 from utils.notify import notify
 from utils.proxy import get_playwright_proxy, get_proxy_server
 
@@ -301,7 +302,7 @@ async def login_with_credentials(
 		return None
 
 
-async def login_with_github_cookies(
+async def login_with_github_cookies_browser(
 	account_name: str,
 	provider_config,
 	provider_name: str,
@@ -397,6 +398,49 @@ async def login_with_github_cookies(
 			await save_login_screenshot(page, provider_name, account_name, 'github-oauth-error')
 		await context.close()
 		return None
+
+
+async def login_with_github_cookies(
+	account_name: str,
+	provider_config,
+	provider_name: str,
+	github_cookies,
+) -> BrowserLoginResult | None:
+	"""优先使用 HTTP OAuth，避免 AgentRouter 在代理浏览器中关闭连接。"""
+	cookies = parse_github_cookies(github_cookies)
+	if not cookies:
+		print(f'[FAILED] {account_name}: Invalid github_cookies format')
+		return None
+
+	print(f'[PROCESSING] {account_name}: Starting GitHub OAuth login over HTTP...')
+	proxy_url = get_proxy_server(use_proxy=provider_config.use_proxy)
+	try:
+		result = await asyncio.to_thread(
+			login_agentrouter_with_github_http,
+			provider_config.domain,
+			provider_config.user_info_path,
+			cookies,
+			proxy_url=proxy_url,
+		)
+		api_user = str(result.user_profile['id']) if result.user_profile.get('id') is not None else None
+		print(f'[SUCCESS] {account_name}: GitHub OAuth HTTP login successful')
+		return BrowserLoginResult(
+			cookies=result.cookies,
+			api_user=api_user,
+			user_profile=result.user_profile,
+		)
+	except (GitHubOAuthHTTPError, httpx.HTTPError) as e:
+		print(f'[FAILED] {account_name}: GitHub OAuth HTTP login failed: {e}')
+		if os.getenv('CHECKIN_AGENTROUTER_BROWSER_FALLBACK', '').strip().lower() not in {'1', 'true', 'yes', 'on'}:
+			return None
+
+	print(f'[WARN] {account_name}: Falling back to browser OAuth')
+	return await login_with_github_cookies_browser(
+		account_name,
+		provider_config,
+		provider_name,
+		github_cookies,
+	)
 
 
 def get_user_info(client, headers, user_info_url: str):

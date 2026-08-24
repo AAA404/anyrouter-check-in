@@ -96,9 +96,9 @@ AgentRouter 的 GitHub OAuth 和 WAF 对 GitHub Actions 出口 IP 较敏感，�
 
 仓库 workflow 会自动启动代理，并对 `agentrouter` 使用代理；AnyRouter 默认不使用代理。当前 workflow 使用 AgentRouter 官方备用域名 `https://ps.air-outer.com`，并同时探测该域名和 Google，避免选中只能访问 Google、却会被 AgentRouter 关闭连接的代理节点。也可以用 `AGENTROUTER_DOMAIN` 覆盖入口；它的优先级高于 `PROVIDERS` 中的同名 `domain`。没有可用代理时，AnyRouter 仍可签到，但 AgentRouter 会明确失败并提示代理不可用。
 
-AgentRouter 默认使用无头 Chromium，并默认关闭 humanize；也可以通过 `CHECKIN_HEADLESS_AGENTROUTER` 和 `CHECKIN_HUMANIZE_AGENTROUTER` 单独覆盖。这是为了避免某些代理出口或站点 WAF 关闭 headed/拟人化 Chromium 的连接；AnyRouter 仍使用全局 `CHECKIN_HEADLESS` 和 `CHECKIN_HUMANIZE` 设置。
+AgentRouter 默认不再启动 Chromium；`CHECKIN_HEADLESS_AGENTROUTER` 和 `CHECKIN_HUMANIZE_AGENTROUTER` 只在显式启用浏览器回退时生效。AnyRouter 仍使用全局 `CHECKIN_HEADLESS` 和 `CHECKIN_HUMANIZE` 设置。
 
-AgentRouter 登录默认使用普通 Playwright Chromium，不使用 CloakBrowser 的自定义 Chromium 网络栈；可通过 `CHECKIN_AGENTROUTER_BROWSER_PATH` 指定浏览器可执行文件路径。AnyRouter 仍使用 CloakBrowser。
+AgentRouter 登录默认通过 HTTP 客户端完成公开的 GitHub OAuth 流程，以绕开 GitHub Actions 代理出口下 Chromium 的 `ERR_CONNECTION_CLOSED`。GitHub Cookie 只发送给 GitHub，OAuth state/session 只保存在 AgentRouter 客户端中。若需排障，可设置 `CHECKIN_AGENTROUTER_BROWSER_FALLBACK=true` 启用旧的浏览器回退，并通过 `CHECKIN_AGENTROUTER_BROWSER_PATH` 指定浏览器。AnyRouter 仍使用 CloakBrowser。
 
 当 `CHECKIN_PROXY_URL` 是本地 mihomo mixed-port（例如 `http://127.0.0.1:7890`）时，AgentRouter 浏览器会自动改用同一端口的 SOCKS5，并禁用 QUIC；HTTP API 请求仍使用 HTTP 代理。
 
