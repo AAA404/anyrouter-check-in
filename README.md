@@ -306,6 +306,7 @@ AgentRouter 的签到发生在登录事件中，不是独立调用 `/api/user/si
 在仓库 Settings -> Environments -> production -> Environment secrets 中添加：
 
 - `PROXY_SUBSCRIPTION_URL`：Clash/Mihomo 订阅链接。设置后，workflow 会运行 `scripts/setup_mihomo_proxy.sh`，启动本地代理并写入 `CHECKIN_PROXY_URL`。
+- `CHECKIN_PROXY_URL`：可选的直接 HTTP 代理地址。workflow 会优先验证它；适用于订阅节点在 GitHub Actions Runner 上全部 `i/o timeout` 的情况。
 
 本地运行时也可以直接使用已有代理：
 

@@ -96,6 +96,8 @@ AgentRouter 的 GitHub OAuth 和 WAF 对 GitHub Actions 出口 IP 较敏感，�
 
 仓库 workflow 会自动启动代理，并对 `agentrouter` 使用代理；AnyRouter 默认不使用代理。当前 workflow 使用 AgentRouter 官方备用域名 `https://ps.air-outer.com`，并同时探测该域名和 Google，避免选中只能访问 Google、却会被 AgentRouter 关闭连接的代理节点。也可以用 `AGENTROUTER_DOMAIN` 覆盖入口；它的优先级高于 `PROVIDERS` 中的同名 `domain`。没有可用代理时，AnyRouter 仍可签到，但 AgentRouter 会明确失败并提示代理不可用。
 
+如果订阅中的节点在 GitHub Actions Runner 上全部超时，建议改用一个 Runner 可直接访问的代理出口。在 `production` Environment Secrets 中添加 `CHECKIN_PROXY_URL`，值填写完整的 HTTP 代理地址，例如 `http://user:password@proxy.example.com:8080`。workflow 会优先验证这个地址，验证成功后不再扫描 `PROXY_SUBSCRIPTION_URL` 中的节点；验证失败时才回退到订阅节点。不要把代理地址提交到仓库或普通变量中。
+
 AgentRouter 默认不再启动 Chromium；`CHECKIN_HEADLESS_AGENTROUTER` 和 `CHECKIN_HUMANIZE_AGENTROUTER` 只在显式启用浏览器回退时生效。AnyRouter 仍使用全局 `CHECKIN_HEADLESS` 和 `CHECKIN_HUMANIZE` 设置。
 
 AgentRouter 登录默认通过 HTTP 客户端完成公开的 GitHub OAuth 流程，以绕开 GitHub Actions 代理出口下 Chromium 的 `ERR_CONNECTION_CLOSED`。GitHub Cookie 只发送给 GitHub，OAuth state/session 只保存在 AgentRouter 客户端中。若需排障，可设置 `CHECKIN_AGENTROUTER_BROWSER_FALLBACK=true` 启用旧的浏览器回退，并通过 `CHECKIN_AGENTROUTER_BROWSER_PATH` 指定浏览器。AnyRouter 仍使用 CloakBrowser。

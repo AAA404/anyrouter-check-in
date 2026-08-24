@@ -9,17 +9,49 @@
 
 set -euo pipefail
 
-if [[ -z "${PROXY_SUBSCRIPTION_URL:-}" ]]; then
-	echo "[INFO] PROXY_SUBSCRIPTION_URL not set, skip proxy setup"
-	exit 0
-fi
-
 PROXY_DIR="${RUNNER_TEMP:-/tmp}/checkin-proxy"
 PROXY_PORT="${PROXY_PORT:-7890}"
 PROXY_TEST_URL="${PROXY_TEST_URL:-https://www.google.com/generate_204}"
 PROXY_TEST_URLS="${PROXY_TEST_URLS:-${PROXY_TEST_URL}}"
 MIHOMO_VERSION="${MIHOMO_VERSION:-v1.19.0}"
 PROXY_REQUIRED="${PROXY_REQUIRED:-false}"
+DIRECT_PROXY_URL="${CHECKIN_PROXY_URL:-}"
+PROBE_BODY="${PROXY_DIR}/probe-response.txt"
+
+probe_proxy() {
+	local proxy_url="$1"
+	local test_url http_code
+	for test_url in ${PROXY_TEST_URLS}; do
+		http_code="$(curl -sS -x "${proxy_url}" --max-time 20 "${test_url}" -o "${PROBE_BODY}" -w '%{http_code}' 2>/dev/null || true)"
+		if [[ ! "${http_code}" =~ ^[1-4][0-9][0-9]$ ]]; then
+			echo "[INFO] Proxy probe failed for ${test_url} (HTTP ${http_code:-no response})"
+			return 1
+		fi
+		if [[ "${test_url}" == *"/api/oauth/state"* ]] && ! jq -e '.success == true and (.data | type == "string") and (.data | length > 0)' "${PROBE_BODY}" >/dev/null 2>&1; then
+			echo "[INFO] Proxy probe returned non-AgentRouter JSON for ${test_url} (HTTP ${http_code})"
+			return 1
+		fi
+	done
+	return 0
+}
+
+if [[ -n "${DIRECT_PROXY_URL}" ]]; then
+	mkdir -p "${PROXY_DIR}"
+	echo "[INFO] Validating directly configured CHECKIN_PROXY_URL"
+	if probe_proxy "${DIRECT_PROXY_URL}"; then
+		echo "[SUCCESS] Direct proxy is ready"
+		if [[ -n "${GITHUB_ENV:-}" ]]; then
+			echo "CHECKIN_PROXY_URL=${DIRECT_PROXY_URL}" >> "${GITHUB_ENV}"
+		fi
+		exit 0
+	fi
+	echo "[WARN] Direct CHECKIN_PROXY_URL health check failed; trying subscription fallback"
+fi
+
+if [[ -z "${PROXY_SUBSCRIPTION_URL:-}" ]]; then
+	echo "[INFO] PROXY_SUBSCRIPTION_URL not set, skip proxy setup"
+	exit 0
+fi
 
 mkdir -p "${PROXY_DIR}"
 cd "${PROXY_DIR}"
