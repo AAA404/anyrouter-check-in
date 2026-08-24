@@ -45,6 +45,7 @@ ipv6: false
 mode: rule
 log-level: warning
 unified-delay: true
+external-controller: 127.0.0.1:9090
 
 proxy-providers:
   subscription:
@@ -59,11 +60,7 @@ proxy-providers:
 
 proxy-groups:
   - name: CHECKIN
-    type: url-test
-    url: "${PROXY_TEST_URL}"
-    interval: 300
-    tolerance: 150
-    lazy: false
+    type: select
     use:
       - subscription
 
@@ -77,15 +74,44 @@ echo $! > mihomo.pid
 
 PROXY_URL="http://127.0.0.1:${PROXY_PORT}"
 READY=false
+PROBE_BODY="${PROXY_DIR}/probe-response.txt"
+PROXY_NAMES=()
+for _ in $(seq 1 30); do
+	mapfile -t PROXY_NAMES < <(curl -fsS --max-time 2 http://127.0.0.1:9090/proxies/CHECKIN 2>/dev/null | jq -r '.all[]' 2>/dev/null || true)
+	if [[ ${#PROXY_NAMES[@]} -gt 0 ]]; then
+		break
+	fi
+	sleep 1
+done
+if [[ ${#PROXY_NAMES[@]} -eq 0 ]]; then
+	echo "[FAILED] No proxy nodes were loaded from the subscription"
+	if [[ "${PROXY_REQUIRED}" == "true" ]]; then
+		exit 1
+	fi
+	exit 0
+fi
+echo "[INFO] Loaded ${#PROXY_NAMES[@]} proxy nodes; validating AgentRouter API responses"
 for attempt in $(seq 1 45); do
+	node_index=$(( (attempt - 1) % ${#PROXY_NAMES[@]} ))
+	node_name="${PROXY_NAMES[${node_index}]}"
+	selection_payload="$(jq -nc --arg name "${node_name}" '{name: $name}')"
+	if ! curl -fsS --max-time 5 -X PUT -H 'Content-Type: application/json' \
+		-d "${selection_payload}" http://127.0.0.1:9090/proxies/CHECKIN >/dev/null 2>&1; then
+		echo "[INFO] Unable to select proxy node ${attempt}"
+		continue
+	fi
 	READY=true
 	for test_url in ${PROXY_TEST_URLS}; do
-		# Any HTTP response proves the TCP/TLS path works; a 4xx/5xx response
-		# can still be a reachable WAF page and should not reject the proxy.
-		http_code="$(curl -sS -x "${PROXY_URL}" --max-time 20 "${test_url}" -o /dev/null -w '%{http_code}' 2>/dev/null || true)"
+		# AgentRouter may return a proxy-generated HTML page with HTTP 200. Its
+		# OAuth state endpoint is considered healthy only when the JSON contract
+		# is present, otherwise mihomo can keep selecting a unusable node.
+		http_code="$(curl -sS -x "${PROXY_URL}" --max-time 20 "${test_url}" -o "${PROBE_BODY}" -w '%{http_code}' 2>/dev/null || true)"
 		if [[ ! "${http_code}" =~ ^[1-4][0-9][0-9]$ ]]; then
 			READY=false
 			echo "[INFO] Proxy probe failed for ${test_url} (HTTP ${http_code:-no response})"
+		elif [[ "${test_url}" == *"/api/oauth/state"* ]] && ! jq -e '.success == true and (.data | type == "string") and (.data | length > 0)' "${PROBE_BODY}" >/dev/null 2>&1; then
+			READY=false
+			echo "[INFO] Proxy probe returned non-AgentRouter JSON for ${test_url} (HTTP ${http_code})"
 		fi
 	done
 	if [[ "${READY}" == "true" ]]; then

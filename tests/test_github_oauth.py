@@ -81,6 +81,9 @@ def test_agentrouter_http_oauth_completes_public_flow(monkeypatch):
 		def __exit__(self, *_args):
 			return None
 
+		def close(self):
+			return None
+
 		def post(self, url, *, data=None, headers=None):
 			requests.append((self.kind, url, data))
 			request = httpx.Request('POST', url, headers=headers)
@@ -161,6 +164,9 @@ def test_agentrouter_http_oauth_rejects_github_login_page(monkeypatch):
 		def __exit__(self, *_args):
 			return None
 
+		def close(self):
+			return None
+
 		def get(self, url, *, headers=None, params=None):
 			request_url = httpx.URL(url, params=params) if params else httpx.URL(url)
 			request = httpx.Request('GET', request_url, headers=headers)
@@ -200,6 +206,9 @@ def test_agentrouter_http_oauth_uses_public_client_id_when_status_is_html(monkey
 		def __exit__(self, *_args):
 			return None
 
+		def close(self):
+			return None
+
 		def get(self, url, *, headers=None, params=None):
 			request_url = httpx.URL(url, params=params) if params else httpx.URL(url)
 			request = httpx.Request('GET', request_url, headers=headers)
@@ -221,6 +230,50 @@ def test_agentrouter_http_oauth_uses_public_client_id_when_status_is_html(monkey
 			raise AssertionError(f'Unexpected request: {request_url}')
 
 	monkeypatch.setattr('utils.github_oauth.httpx.Client', FakeClient)
+	result = login_agentrouter_with_github_http(
+		'https://ps.air-outer.com',
+		'/api/user/self',
+		[{'name': 'user_session', 'value': 'secret', 'domain': '.github.com', 'path': '/'}],
+	)
+
+	assert result.user_profile['id'] == 1
+
+
+def test_agentrouter_http_oauth_falls_back_to_the_other_official_domain(monkeypatch):
+	class FakeClient:
+		created = 0
+
+		def __init__(self, **_kwargs):
+			self.domain = 'ps.air-outer.com' if FakeClient.created == 0 else 'agentrouter.org'
+			FakeClient.created += 1
+			self.cookies = httpx.Cookies()
+
+		def get(self, url, *, headers=None, params=None):
+			request_url = httpx.URL(url, params=params) if params else httpx.URL(url)
+			request = httpx.Request('GET', request_url, headers=headers)
+			if request_url.path == '/api/status':
+				return httpx.Response(200, text='<html>blocked</html>', request=request)
+			if request_url.path == '/api/oauth/state':
+				if self.domain == 'ps.air-outer.com':
+					return httpx.Response(200, text='<html>blocked</html>', request=request)
+				return httpx.Response(200, json={'success': True, 'data': 'state'}, request=request)
+			if request_url.path == '/api/oauth/github':
+				return httpx.Response(200, json={'success': True, 'data': {'id': 1}}, request=request)
+			if request_url.path == '/api/user/self':
+				return httpx.Response(200, json={'success': True, 'data': {'id': 1}}, request=request)
+			raise AssertionError(f'Unexpected request: {request_url}')
+
+		def __enter__(self):
+			return self
+
+		def __exit__(self, *_args):
+			self.close()
+
+		def close(self):
+			return None
+
+	monkeypatch.setattr('utils.github_oauth.httpx.Client', FakeClient)
+	monkeypatch.setattr('utils.github_oauth._request_github_callback', lambda *_args: ('code', 'state'))
 	result = login_agentrouter_with_github_http(
 		'https://ps.air-outer.com',
 		'/api/user/self',

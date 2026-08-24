@@ -12,6 +12,7 @@ GITHUB_AUTHORIZE_URL = 'https://github.com/login/oauth/authorize'
 # AgentRouter 官方前端公开的 OAuth App Client ID。/api/status 仅用于发现它，
 # 但部分 Actions 出口会把该公开接口替换成 HTML，因此保留固定回退值。
 DEFAULT_AGENTROUTER_GITHUB_CLIENT_ID = 'Ov23lidtiR4LeVZvVRNL'
+AGENTROUTER_OFFICIAL_DOMAINS = ('https://ps.air-outer.com', 'https://agentrouter.org')
 REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
 USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36'
 
@@ -183,46 +184,86 @@ def login_agentrouter_with_github_http(
 ) -> GitHubOAuthHTTPResult:
 	"""用两个隔离的 HTTP 会话完成 AgentRouter GitHub OAuth。"""
 	domain = domain.rstrip('/')
-	agent_headers = {
-		'User-Agent': USER_AGENT,
-		'Accept': 'application/json, text/plain, */*',
-		'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-		'Referer': f'{domain}/login',
-	}
+	candidates = [domain]
+	for official_domain in AGENTROUTER_OFFICIAL_DOMAINS:
+		if official_domain != domain:
+			candidates.append(official_domain)
 
-	with httpx.Client(**_client_kwargs(proxy_url)) as agent_client:
-		status_response = agent_client.get(f'{domain}/api/status', headers=agent_headers)
-		try:
-			status_data = _json_data(status_response, 'AgentRouter status request')
-		except GitHubOAuthHTTPError as exc:
-			print(f'[WARN] AgentRouter status discovery failed, using built-in public GitHub client id: {exc}')
-			status_data = None
-		client_id = status_data.get('github_client_id') if isinstance(status_data, dict) else None
-		client_id = client_id or DEFAULT_AGENTROUTER_GITHUB_CLIENT_ID
+	agent_client: httpx.Client | None = None
+	client_id = DEFAULT_AGENTROUTER_GITHUB_CLIENT_ID
+	state = None
+	selected_domain = None
+	selected_headers: dict[str, str] | None = None
+	selected_proxy = None
+	last_error: GitHubOAuthHTTPError | None = None
+	routes = [proxy_url]
+	if proxy_url:
+		routes.append(None)
+	for candidate_proxy in routes:
+		for candidate in candidates:
+			candidate_headers = {
+				'User-Agent': USER_AGENT,
+				'Accept': 'application/json, text/plain, */*',
+				'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+				'Referer': f'{candidate}/login',
+			}
+			candidate_client = httpx.Client(**_client_kwargs(candidate_proxy))
+			try:
+				status_response = candidate_client.get(f'{candidate}/api/status', headers=candidate_headers)
+				try:
+					status_data = _json_data(status_response, 'AgentRouter status request')
+				except GitHubOAuthHTTPError as exc:
+					print(f'[WARN] {candidate} status discovery failed, using built-in public GitHub client id: {exc}')
+					status_data = None
+				candidate_client_id = status_data.get('github_client_id') if isinstance(status_data, dict) else None
+				candidate_client_id = candidate_client_id or DEFAULT_AGENTROUTER_GITHUB_CLIENT_ID
+				state_response = candidate_client.get(
+					f'{candidate}/api/oauth/state?mode=login', headers=candidate_headers
+				)
+				candidate_state = _json_data(state_response, 'AgentRouter OAuth state request')
+				if not isinstance(candidate_state, str) or not candidate_state:
+					raise GitHubOAuthHTTPError('AgentRouter returned an invalid OAuth state')
+				agent_client = candidate_client
+				client_id = str(candidate_client_id)
+				state = candidate_state
+				selected_domain = candidate
+				selected_headers = candidate_headers
+				selected_proxy = candidate_proxy
+				connection = 'proxy' if candidate_proxy else 'direct connection'
+				print(f'[INFO] AgentRouter HTTP OAuth endpoint selected via {connection}: {candidate}')
+				break
+			except (GitHubOAuthHTTPError, httpx.HTTPError) as exc:
+				last_error = (
+					exc
+					if isinstance(exc, GitHubOAuthHTTPError)
+					else GitHubOAuthHTTPError(f'AgentRouter network request failed: {exc}')
+				)
+				candidate_client.close()
+				print(f'[WARN] AgentRouter OAuth endpoint unavailable: {candidate}: {last_error}')
+		if agent_client is not None:
+			break
+	if agent_client is None or selected_domain is None or state is None or selected_headers is None:
+		raise last_error or GitHubOAuthHTTPError('No official AgentRouter OAuth endpoint returned a valid state')
 
-		state_response = agent_client.get(f'{domain}/api/oauth/state?mode=login', headers=agent_headers)
-		state = _json_data(state_response, 'AgentRouter OAuth state request')
-		if not isinstance(state, str) or not state:
-			raise GitHubOAuthHTTPError('AgentRouter returned an invalid OAuth state')
-
-		with httpx.Client(**_client_kwargs(proxy_url)) as github_client:
+	try:
+		with httpx.Client(**_client_kwargs(selected_proxy)) as github_client:
 			if not _add_github_cookies(github_client, github_cookies):
 				raise GitHubOAuthHTTPError('No valid GitHub cookies were available for HTTP OAuth')
 			code, callback_state = _request_github_callback(
 				github_client,
 				str(client_id),
 				state,
-				(urlparse(domain).hostname or '').lower(),
+				(urlparse(selected_domain).hostname or '').lower(),
 			)
 
 		callback_response = agent_client.get(
-			f'{domain}/api/oauth/github',
+			f'{selected_domain}/api/oauth/github',
 			params={'code': code, 'state': callback_state, 'mode': 'login'},
-			headers=agent_headers,
+			headers=selected_headers,
 		)
 		callback_data = _json_data(callback_response, 'AgentRouter OAuth callback')
 
-		profile_response = agent_client.get(f'{domain}{user_info_path}', headers=agent_headers)
+		profile_response = agent_client.get(f'{selected_domain}{user_info_path}', headers=selected_headers)
 		try:
 			profile_data = _json_data(profile_response, 'AgentRouter user verification')
 		except GitHubOAuthHTTPError:
@@ -232,3 +273,5 @@ def login_agentrouter_with_github_http(
 
 		cookies = {cookie.name: cookie.value for cookie in agent_client.cookies.jar}
 		return GitHubOAuthHTTPResult(cookies=cookies, user_profile=profile_data)
+	finally:
+		agent_client.close()
