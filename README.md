@@ -316,7 +316,7 @@ PROVIDERS={"agentrouter":{"use_proxy":true}}
 
 AgentRouter 默认通过 HTTP 客户端完成 GitHub OAuth，避免 GitHub Actions 代理出口下 Chromium 访问站点时出现 `ERR_CONNECTION_CLOSED`。GitHub Cookie 与 AgentRouter 会话分别保存在隔离的 HTTP 客户端中，不会写入仓库或输出到日志。如需排障并恢复旧的浏览器回退，可设置 `CHECKIN_AGENTROUTER_BROWSER_FALLBACK=true`；浏览器参数仍可用 `CHECKIN_AGENTROUTER_BROWSER_PATH`、`CHECKIN_HEADLESS_AGENTROUTER` 或 `CHECKIN_HUMANIZE_AGENTROUTER` 覆盖。AnyRouter 仍使用 CloakBrowser。
 
-如果使用订阅脚本，默认会用 `https://www.google.com/generate_204` 测试代理连通性；也可以通过 `PROXY_TEST_URL` 覆盖。
+如果使用订阅脚本，workflow 会逐个选择订阅节点，并同时验证 AgentRouter OAuth state 接口返回有效 JSON、Google 连通性正常。只有通过业务接口验证的节点才会写入 `CHECKIN_PROXY_URL`，避免把 `HTTP 200` 的代理拦截 HTML 误判为可用响应。探测地址可以通过 `PROXY_TEST_URL` 和 `PROXY_TEST_URLS` 覆盖。
 
 ## 开启通知
 

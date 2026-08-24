@@ -56,6 +56,7 @@ proxy-providers:
     health-check:
       enable: true
       interval: 300
+      lazy: false
       url: https://www.gstatic.com/generate_204
 
 proxy-groups:
@@ -91,14 +92,22 @@ if [[ ${#PROXY_NAMES[@]} -eq 0 ]]; then
 	exit 0
 fi
 echo "[INFO] Loaded ${#PROXY_NAMES[@]} proxy nodes; validating AgentRouter API responses"
+selected_node_index=-1
 for attempt in $(seq 1 45); do
 	node_index=$(( (attempt - 1) % ${#PROXY_NAMES[@]} ))
-	node_name="${PROXY_NAMES[${node_index}]}"
-	selection_payload="$(jq -nc --arg name "${node_name}" '{name: $name}')"
-	if ! curl -fsS --max-time 5 -X PUT -H 'Content-Type: application/json' \
-		-d "${selection_payload}" http://127.0.0.1:9090/proxies/CHECKIN >/dev/null 2>&1; then
-		echo "[INFO] Unable to select proxy node ${attempt}"
-		continue
+	if [[ ${node_index} -ne ${selected_node_index} ]]; then
+		node_name="${PROXY_NAMES[${node_index}]}"
+		selection_payload="$(jq -nc --arg name "${node_name}" '{name: $name}')"
+		if ! curl -fsS --max-time 5 -X PUT -H 'Content-Type: application/json' \
+			-d "${selection_payload}" http://127.0.0.1:9090/proxies/CHECKIN >/dev/null 2>&1; then
+			echo "[INFO] Unable to select proxy node $((node_index + 1))/${#PROXY_NAMES[@]}"
+			continue
+		fi
+		selected_node_index=${node_index}
+		echo "[INFO] Testing proxy node $((node_index + 1))/${#PROXY_NAMES[@]}"
+		# A select group does not pre-connect like url-test. Give the newly
+		# selected tunnel time to establish before the first request.
+		sleep 2
 	fi
 	READY=true
 	for test_url in ${PROXY_TEST_URLS}; do
